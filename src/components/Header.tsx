@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { useStore } from '../store/useStore';
 import { getTranslation } from '../utils/translations';
 import { exportPointsToExcel } from '../utils/excel';
-import { TestingChecklistModal } from './TestingChecklistModal';
 import {
   Compass,
   Plus,
@@ -41,7 +40,6 @@ export const Header: React.FC = () => {
 
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showMobileMoreMenu, setShowMobileMoreMenu] = useState(false);
-  const [showChecklist, setShowChecklist] = useState(false);
 
   const POPULAR_ZONES = [36, 37, 38, 39, 40, 35, 34, 33];
   const isAr = language === 'ar';
@@ -229,15 +227,6 @@ export const Header: React.FC = () => {
         </div>
 
         <button
-          onClick={() => setShowChecklist(true)}
-          className="hidden sm:flex items-center gap-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all"
-          title={isAr ? 'قائمة تحقق واختبار النظام' : 'Testing Checklist'}
-        >
-          <ClipboardCheck className="w-4 h-4 text-emerald-400" />
-          <span className="hidden md:inline">{isAr ? 'قائمة الاختبار' : 'Checklist'}</span>
-        </button>
-
-        <button
           onClick={() => setLanguage(language === 'ar' ? 'en' : 'ar')}
           className="hidden sm:flex items-center gap-1.5 bg-slate-800/90 hover:bg-slate-700 border border-slate-700/80 text-slate-200 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all"
           title="تغيير اللغة / Change Language"
@@ -325,19 +314,8 @@ export const Header: React.FC = () => {
                 </select>
               </div>
 
-              {/* Checklist & Language */}
+              {/* Language */}
               <div className="space-y-1 pt-1">
-                <button
-                  onClick={() => {
-                    setShowChecklist(true);
-                    setShowMobileMoreMenu(false);
-                  }}
-                  className="w-full py-2 px-3 rounded-xl bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-2"
-                >
-                  <ClipboardCheck className="w-4 h-4 text-emerald-400" />
-                  <span>{isAr ? 'قائمة تحقق واختبار النظام' : 'Testing Checklist'}</span>
-                </button>
-
                 <button
                   onClick={() => {
                     setLanguage(language === 'ar' ? 'en' : 'ar');
@@ -353,9 +331,6 @@ export const Header: React.FC = () => {
           )}
         </div>
       </div>
-
-      {/* Testing Checklist Modal */}
-      <TestingChecklistModal isOpen={showChecklist} onClose={() => setShowChecklist(false)} />
     </header>
   );
 };
