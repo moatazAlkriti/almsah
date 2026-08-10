@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#020617"/>
+      <stop offset="50%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#064e3b"/>
+    </linearGradient>
+    <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background Card -->
+  <rect width="512" height="512" rx="110" fill="url(#bg)"/>
+  <rect x="12" y="12" width="488" height="488" rx="98" fill="none" stroke="#10b981" stroke-width="4" stroke-opacity="0.3"/>
+
+  <!-- Target Grid Lines (UTM Grid) -->
+  <circle cx="256" cy="256" r="180" fill="none" stroke="#334155" stroke-width="3" stroke-dasharray="8 8"/>
+  <circle cx="256" cy="256" r="110" fill="none" stroke="#1e293b" stroke-width="2"/>
+  <line x1="256" y1="40" x2="256" y2="472" stroke="#334155" stroke-width="2" stroke-dasharray="6 6"/>
+  <line x1="40" y1="256" x2="472" y2="256" stroke="#334155" stroke-width="2" stroke-dasharray="6 6"/>
+
+  <!-- Compass / GIS Target Symbol -->
+  <circle cx="256" cy="256" r="140" fill="none" stroke="url(#emeraldGrad)" stroke-width="12" filter="url(#glow)"/>
+  
+  <!-- Outer Compass Points -->
+  <polygon points="256,70 270,120 242,120" fill="url(#goldGrad)"/>
+  <text x="256" y="55" font-family="Arial, sans-serif" font-weight="900" font-size="28" fill="#fbbf24" text-anchor="middle">N</text>
+
+  <!-- Center Map Pin Marker -->
+  <g transform="translate(256, 256)">
+    <!-- Pulse Ring -->
+    <circle cx="0" cy="0" r="45" fill="#10b981" fill-opacity="0.2"/>
+    
+    <!-- Pin Icon -->
+    <path d="M 0,-65 C -30,-65 -50,-42 -50,-12 C -50,28 0,75 0,75 C 0,75 50,28 50,-12 C 50,-42 30,-65 0,-65 Z" fill="url(#emeraldGrad)" filter="url(#glow)"/>
+    <circle cx="0" cy="-15" r="18" fill="#020617"/>
+    <circle cx="0" cy="-15" r="10" fill="#34d399"/>
+  </g>
+
+  <!-- Title / Label -->
+  <text x="256" y="445" font-family="'Tajawal', 'Arial', sans-serif" font-weight="800" font-size="38" fill="#ecfdf5" text-anchor="middle" letter-spacing="2">المساح</text>
+  <text x="256" y="475" font-family="'JetBrains Mono', sans-serif" font-weight="600" font-size="16" fill="#10b981" text-anchor="middle" letter-spacing="3">UTM GIS COLLECTOR</text>
+</svg>
