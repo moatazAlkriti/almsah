@@ -194,4 +194,8 @@
   animation: spinSlow 14s linear infinite;
 }
 
-.annotation-text-icon { background: transparent !important; border: none !important; }
+.annotation-text-icon, .live-measure-badge, .measure-node-icon { 
+  background: transparent !important; 
+  border: none !important; 
+  box-shadow: none !important; 
+}

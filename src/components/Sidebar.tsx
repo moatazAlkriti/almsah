@@ -25,6 +25,7 @@ import {
   RotateCw,
   Sparkles,
   Ruler,
+  Plus,
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
@@ -541,16 +542,42 @@ export const Sidebar: React.FC = () => {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setPointToPointMeasure(pt.id, null);
+                          const st = useStore.getState();
+                          st.setTempMapClickCoords({
+                            lat: pt.lat,
+                            lng: pt.lng,
+                            utm: pt.utm,
+                            elevation: pt.elevation
+                          });
+                          st.setActiveModal('add_point');
+                        }}
+                        className="p-1.5 hover:text-emerald-400 hover:bg-slate-800 rounded-lg transition-colors text-emerald-500/80"
+                        title={isAr ? 'إضافة نقطة جديدة هنا' : 'Add new point here'}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const st = useStore.getState();
+                          st.setIsMeasuringMode(true);
+                          st.clearMeasurePoints();
+                          st.addMeasurePoint({
+                            id: `m_${pt.id}`,
+                            lat: pt.lat,
+                            lng: pt.lng,
+                            utm: pt.utm,
+                          });
                           showToast(
                             isAr
-                              ? 'تم تحديد النقطة الأولى! انقر على الخريطة لاختيار نقطة الهدف'
-                              : 'Point A set! Click map to set target point',
+                              ? 'تم بدء القياس الحي! حرّك المؤشر للقياس لحظياً'
+                              : 'Live Measurement started! Move cursor to measure instantly',
                             'info'
                           );
                         }}
                         className="p-1.5 hover:text-amber-400 hover:bg-slate-800 rounded-lg transition-colors text-amber-500/80"
-                        title={isAr ? 'قياس المسافة من هذه النقطة' : 'Measure from this point'}
+                        title={isAr ? 'القياس الحي اللحظي من هنا' : 'Live measure from here'}
                       >
                         <Ruler className="w-3.5 h-3.5" />
                       </button>

@@ -187,48 +187,8 @@ interface AppState {
   hideToast: () => void;
 }
 
-// Initial default sample points (Iraq focus)
-const INITIAL_SAMPLE_POINTS: SurveyPoint[] = [
-  {
-    id: 'sample_01',
-    name: 'نقطة المرجعية المركزية - بغداد',
-    description: 'نقطة ضبط أرضي (GCP) مركز بغداد - Zone 38N',
-    utm: { zone: 38, hemisphere: 'N', easting: 441010.50, northing: 3686520.80 },
-    lat: 33.3152,
-    lng: 44.3661,
-    timestamp: new Date().toISOString(),
-    category: '',
-    elevation: 34.0,
-    color: '#10b981',
-    isLocked: false,
-  },
-  {
-    id: 'sample_02',
-    name: 'مرجع شمالي - أربيل',
-    description: 'نقطة حدود شمال العراق - Zone 38N',
-    utm: { zone: 38, hemisphere: 'N', easting: 410850.10, northing: 4005600.30 },
-    lat: 36.1901,
-    lng: 44.0091,
-    timestamp: new Date().toISOString(),
-    category: '',
-    elevation: 415.0,
-    color: '#f59e0b',
-    isLocked: true,
-  },
-  {
-    id: 'sample_03',
-    name: 'نقطة حد الميناء الجنوبية - البصرة',
-    description: 'منسوب ارتفاع وبنية تحتية جنوب العراق - Zone 38N',
-    utm: { zone: 38, hemisphere: 'N', easting: 767200.00, northing: 3378300.00 },
-    lat: 30.5081,
-    lng: 47.7835,
-    timestamp: new Date().toISOString(),
-    category: '',
-    elevation: 5.5,
-    color: '#3b82f6',
-    isLocked: false,
-  },
-];
+// Initial default sample points (Empty by default)
+const INITIAL_SAMPLE_POINTS: SurveyPoint[] = [];
 
 export const useStore = create<AppState>()(
   persist(
@@ -738,15 +698,26 @@ export const useStore = create<AppState>()(
     }),
     {
       name: 'utm-gis-surveyor-storage',
-      version: 2,
+      version: 3,
       migrate: (persistedState: any, version: number) => {
-        if (version < 2 || !persistedState || persistedState.autoFetchElevation === undefined) {
-          return {
-            ...persistedState,
+        let state = persistedState;
+        
+        if (version < 2 || !state || state.autoFetchElevation === undefined) {
+          state = {
+            ...state,
             autoFetchElevation: true,
           };
         }
-        return persistedState;
+        
+        if (version < 3 && state && state.points && Array.isArray(state.points)) {
+          // Remove default sample points from previous versions
+          state = {
+            ...state,
+            points: state.points.filter((p: any) => !['sample_01', 'sample_02', 'sample_03'].includes(p.id))
+          };
+        }
+        
+        return state;
       },
       partialize: (state) => ({
         points: state.points,

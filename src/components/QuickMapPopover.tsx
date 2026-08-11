@@ -167,7 +167,7 @@ export const QuickMapPopover: React.FC = () => {
           className="w-full py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 flex items-center gap-2 transition-colors"
         >
           <Ruler className="w-4 h-4 text-amber-400" />
-          <span>{isAr ? 'بدء قياس المسافة من هنا' : 'Measure Distance From Here'}</span>
+          <span>{isAr ? 'بدء القياس الحي المستمر من هنا' : 'Start Live Measurement From Here'}</span>
         </button>
 
         <button

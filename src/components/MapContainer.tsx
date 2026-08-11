@@ -5,7 +5,7 @@ import { latLngToUTM, formatUTMString, calculateHaversineDistance, latLngToMGRS,
 import { fetchElevation } from '../utils/elevation';
 import { getTranslation } from '../utils/translations';
 import { TileLayerType, UTMCoordinate, AnnotationText } from '../types';
-import { Crosshair, Ruler, MapPin, Layers, Lock, Sparkles, LocateFixed, Loader2, AlertCircle, RotateCw, Wifi, PenTool, Type } from 'lucide-react';
+import { Crosshair, Ruler, MapPin, Layers, Lock, Sparkles, LocateFixed, Loader2, AlertCircle, RotateCw, Wifi, PenTool, Type, X } from 'lucide-react';
 import { AnnotationToolbar } from './AnnotationToolbar';
 import { LineEditorModal } from './LineEditorModal';
 import { TextEditorModal } from './TextEditorModal';
@@ -155,6 +155,7 @@ export const MapContainer: React.FC = () => {
     isAddingPointMode,
     isContinuousAddMode,
     isMeasuringMode,
+    measurePoints,
     isDrawingLineMode,
     isAddingTextMode,
     manualZoneOverride,
@@ -168,6 +169,7 @@ export const MapContainer: React.FC = () => {
       isAddingPointMode,
       isContinuousAddMode,
       isMeasuringMode,
+      measurePoints,
       isDrawingLineMode,
       isAddingTextMode,
       manualZoneOverride,
@@ -175,7 +177,7 @@ export const MapContainer: React.FC = () => {
       language,
       isAr,
     };
-  }, [isAddingPointMode, isContinuousAddMode, isMeasuringMode, isDrawingLineMode, isAddingTextMode, manualZoneOverride, points, language, isAr]);
+  }, [isAddingPointMode, isContinuousAddMode, isMeasuringMode, measurePoints, isDrawingLineMode, isAddingTextMode, manualZoneOverride, points, language, isAr]);
 
   const handleLocateUser = () => {
     if (!navigator.geolocation) {
@@ -326,22 +328,123 @@ export const MapContainer: React.FC = () => {
     }
   }, [activeTileLayer, handleTileError]);
 
-  // 3. Mousemove Coords Display
+  // 3. Mousemove Coords Display & Live Measure
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
     const handleMouseMove = (e: L.LeafletMouseEvent) => {
       const { lat, lng } = e.latlng;
-      const utm = latLngToUTM(lat, lng, manualZoneOverride);
+      const st = stateRef.current;
+      const utm = latLngToUTM(lat, lng, st.manualZoneOverride);
+      
+      // We still update React state for the footer bar (it might cause a render, but it's isolated or acceptable)
       setCursorUtm(utm);
+
+      // Handle live measure drawing imperatively for performance (no re-renders)
+      if (st.isMeasuringMode && st.measurePoints.length > 0) {
+        const lastPt = st.measurePoints[st.measurePoints.length - 1];
+        
+        const latLngs: [number, number][] = [
+          [lastPt.lat, lastPt.lng],
+          [lat, lng],
+        ];
+
+        if (!liveMeasurePolylineRef.current) {
+          liveMeasurePolylineRef.current = L.polyline(latLngs, {
+            color: '#fcd34d',
+            weight: 3,
+            dashArray: '4, 8',
+            interactive: false,
+          }).addTo(map);
+        } else {
+          liveMeasurePolylineRef.current.setLatLngs(latLngs);
+        }
+
+        const dist = calculateHaversineDistance(lastPt.lat, lastPt.lng, lat, lng);
+        
+        // Calculate total previous distance
+        let totalPrevDist = 0;
+        for (let i = 1; i < st.measurePoints.length; i++) {
+          totalPrevDist += calculateHaversineDistance(
+            st.measurePoints[i-1].lat, st.measurePoints[i-1].lng,
+            st.measurePoints[i].lat, st.measurePoints[i].lng
+          );
+        }
+        
+        const formatValUnit = (d: number) => {
+          const isKm = d >= 1000;
+          const val = isKm ? (d / 1000).toFixed(2) : d.toFixed(1);
+          const unit = isKm ? (st.isAr ? 'كم' : 'km') : (st.isAr ? 'م' : 'm');
+          return { val, unit };
+        };
+
+        const cur = formatValUnit(dist);
+        const tot = formatValUnit(totalPrevDist + dist);
+        
+        let html = '';
+        if (totalPrevDist > 0) {
+          html = `<div dir="${st.isAr ? 'rtl' : 'ltr'}" class="bg-slate-900/95 text-slate-100 px-3.5 py-2 rounded-xl shadow-2xl border border-amber-500/50 backdrop-blur-md min-w-[180px] flex flex-col gap-1 text-xs font-sans">
+            <div class="flex items-center justify-between gap-3">
+              <span class="text-slate-400 text-[11px] font-medium">${st.isAr ? 'المسافة الحالية:' : 'Current:'}</span>
+              <span class="text-amber-400 font-bold font-mono text-xs inline-flex items-center gap-1" dir="ltr">
+                <span>+${cur.val}</span>
+                <span class="text-[11px] text-amber-300 font-sans">${cur.unit}</span>
+              </span>
+            </div>
+            <div class="flex items-center justify-between gap-3 border-t border-slate-700/60 pt-1">
+              <span class="text-slate-400 text-[11px] font-medium">${st.isAr ? 'إجمالي المسافة:' : 'Total:'}</span>
+              <span class="text-amber-300 font-bold font-mono text-xs inline-flex items-center gap-1" dir="ltr">
+                <span>${tot.val}</span>
+                <span class="text-[11px] text-amber-200 font-sans">${tot.unit}</span>
+              </span>
+            </div>
+          </div>`;
+        } else {
+          html = `<div dir="${st.isAr ? 'rtl' : 'ltr'}" class="bg-slate-900/95 text-amber-400 px-3.5 py-2 rounded-xl shadow-2xl border border-amber-500/50 backdrop-blur-md inline-flex items-center gap-2 text-xs font-bold font-sans whitespace-nowrap">
+            <svg class="w-4 h-4 text-amber-400 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+            <span class="text-slate-300 font-medium text-[11px]">${st.isAr ? 'المسافة:' : 'Distance:'}</span>
+            <span class="inline-flex items-center gap-1 font-mono text-amber-400" dir="ltr">
+              <span>${cur.val}</span>
+              <span class="text-[11px] font-sans text-amber-300">${cur.unit}</span>
+            </span>
+          </div>`;
+        }
+        
+        const badgeIcon = L.divIcon({
+          html,
+          className: 'live-measure-badge',
+          iconSize: [210, 60],
+          iconAnchor: [-15, 30],
+        });
+
+        if (!liveMeasureBadgeRef.current) {
+          liveMeasureBadgeRef.current = L.marker([lat, lng], {
+            icon: badgeIcon,
+            interactive: false,
+          }).addTo(map);
+        } else {
+          liveMeasureBadgeRef.current.setLatLng([lat, lng]);
+          liveMeasureBadgeRef.current.setIcon(badgeIcon);
+        }
+      } else {
+        // Cleanup if not measuring or no points
+        if (liveMeasurePolylineRef.current) {
+          liveMeasurePolylineRef.current.remove();
+          liveMeasurePolylineRef.current = null;
+        }
+        if (liveMeasureBadgeRef.current) {
+          liveMeasureBadgeRef.current.remove();
+          liveMeasureBadgeRef.current = null;
+        }
+      }
     };
 
     map.on('mousemove', handleMouseMove);
     return () => {
       map.off('mousemove', handleMouseMove);
     };
-  }, [manualZoneOverride]);
+  }, []);
 
   // 4. Map Click Handler (Using store.getState() for fresh values)
   useEffect(() => {
@@ -585,18 +688,44 @@ export const MapContainer: React.FC = () => {
 
     // Render node markers for all measure points
     if (measurePoints.length > 0) {
+      const { isAr } = stateRef.current;
       measurePoints.forEach((pt, index) => {
         const nodeIcon = L.divIcon({
-          html: `<div class="w-6 h-6 bg-amber-500 border-2 border-slate-900 rounded-full flex items-center justify-center text-[11px] font-bold text-slate-950 font-mono shadow-xl">${index + 1}</div>`,
+          html: `<div class="w-9 h-9 flex items-center justify-center group relative cursor-pointer" title="${isAr ? 'انقر للحفظ كنقطة' : 'Click to save point'}">
+            <!-- Outer glowing aura -->
+            <div class="absolute inset-0 bg-amber-500/30 border-2 border-amber-400 rounded-full shadow-[0_0_14px_rgba(245,158,11,0.95)] backdrop-blur-xs transition-transform group-hover:scale-125"></div>
+            <!-- Center dark contrast disc with bright yellow SVG crosshair -->
+            <div class="w-5 h-5 bg-slate-950/90 rounded-full border border-amber-300 flex items-center justify-center shadow-lg relative z-10">
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="4" x2="12" y2="20"></line>
+                <line x1="4" y1="12" x2="20" y2="12"></line>
+              </svg>
+            </div>
+            <!-- Hover Label Badge -->
+            <div class="absolute -top-7 ${isAr ? 'right-1/2 translate-x-1/2' : 'left-1/2 -translate-x-1/2'} bg-slate-900/95 text-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-md border border-amber-500/50 shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-30 pointer-events-none" dir="${isAr ? 'rtl' : 'ltr'}">
+              ${isAr ? 'حفظ كنقطة 📍' : 'Save Point 📍'}
+            </div>
+          </div>`,
           className: 'measure-node-icon',
-          iconSize: [24, 24],
-          iconAnchor: [12, 12],
+          iconSize: [36, 36],
+          iconAnchor: [18, 18],
         });
 
         const nodeMarker = L.marker([pt.lat, pt.lng], {
           icon: nodeIcon,
-          interactive: false,
+          interactive: true,
         }).addTo(map);
+
+        nodeMarker.on('click', (e) => {
+          L.DomEvent.stopPropagation(e);
+          useStore.getState().setTempMapClickCoords({
+            lat: pt.lat,
+            lng: pt.lng,
+            utm: pt.utm,
+          });
+          useStore.getState().setActiveModal('add_point');
+        });
+
         measureMarkersRef.current.push(nodeMarker);
       });
     }
@@ -858,14 +987,15 @@ export const MapContainer: React.FC = () => {
     
     container.classList.remove('cursor-crosshair', 'cursor-cell', 'cursor-grab');
     
-    if (isAddingPointMode || isContinuousAddMode) {
+    if (isAddingPointMode || isContinuousAddMode || isMeasuringMode) {
       container.classList.add('cursor-crosshair');
-    } else if (isMeasuringMode) {
-      container.classList.add('cursor-cell');
     } else {
       container.classList.add('cursor-grab');
     }
   }, [isAddingPointMode, isContinuousAddMode, isMeasuringMode]);
+
+  const liveMeasurePolylineRef = useRef<L.Polyline | null>(null);
+  const liveMeasureBadgeRef = useRef<L.Marker | null>(null);
 
   return (
     <div className="relative w-full h-full overflow-hidden select-none">
@@ -893,7 +1023,7 @@ export const MapContainer: React.FC = () => {
       )}
 
       {isMeasuringMode && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-amber-950/95 border border-amber-500/50 text-amber-200 px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-4">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-amber-950/95 border border-amber-500/50 text-amber-200 pl-5 pr-2 py-2 rounded-full shadow-2xl flex items-center gap-4">
           <Ruler className="w-5 h-5 text-amber-400" />
           <div className="flex items-center gap-3">
             <span className="text-xs font-medium">{getTranslation(language, 'measuringPrompt')}</span>
@@ -905,6 +1035,13 @@ export const MapContainer: React.FC = () => {
               </span>
             )}
           </div>
+          <button 
+            onClick={() => useStore.getState().setIsMeasuringMode(false)}
+            className="p-1.5 ml-2 hover:bg-amber-900 rounded-full transition-colors text-amber-400 hover:text-amber-300"
+            title="إلغاء القياس"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 

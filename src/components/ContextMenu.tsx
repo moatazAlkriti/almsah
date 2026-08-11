@@ -154,6 +154,39 @@ export const ContextMenu: React.FC = () => {
         </button>
 
         <button
+          onClick={() => {
+            const st = useStore.getState();
+            st.setIsMeasuringMode(true);
+            st.clearMeasurePoints();
+            st.addMeasurePoint({
+              id: `m_${point.id}`,
+              lat: point.lat,
+              lng: point.lng,
+              utm: point.utm,
+            });
+            showToast(isAr ? 'تحرك الان لقياس المسافة لحظياً' : 'Move cursor for live measurement', 'info');
+            setContextMenu(null);
+          }}
+          className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 flex items-center gap-2 transition-colors"
+        >
+          <Ruler className="w-4 h-4 text-amber-400" />
+          <span>{isAr ? 'بدء القياس الحي المستمر' : 'Start Live Measurement'}</span>
+        </button>
+
+        <button
+          onClick={() => {
+            const st = useStore.getState();
+            st.setTempMapClickCoords({ lat: point.lat, lng: point.lng, utm: point.utm });
+            st.setActiveModal('add_point');
+            setContextMenu(null);
+          }}
+          className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 flex items-center gap-2 transition-colors"
+        >
+          <Navigation className="w-4 h-4 text-emerald-400" />
+          <span>{isAr ? 'إضافة نقطة جديدة هنا' : 'Add New Point Here'}</span>
+        </button>
+
+        <button
           onClick={handleEdit}
           className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-2 transition-colors"
         >

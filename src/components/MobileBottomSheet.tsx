@@ -637,12 +637,20 @@ export const MobileBottomSheet: React.FC = () => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setPointToPointMeasure(pt.id, null);
+                              const st = useStore.getState();
+                              st.setIsMeasuringMode(true);
+                              st.clearMeasurePoints();
+                              st.addMeasurePoint({
+                                id: `m_${pt.id}`,
+                                lat: pt.lat,
+                                lng: pt.lng,
+                                utm: pt.utm,
+                              });
                               setSheetState('peek');
                               showToast(
                                 isAr
-                                  ? 'اختر النقطة الثانية مباشرة من الخريطة'
-                                  : 'Select target point directly on map',
+                                  ? 'تم بدء القياس من النقطة! حرّك الخريطة للقياس'
+                                  : 'Measuring from point! Move map to measure',
                                 'info'
                               );
                             }}
