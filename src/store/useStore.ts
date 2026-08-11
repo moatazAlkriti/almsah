@@ -1,19 +1,40 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage, StateStorage } from 'zustand/middleware';
+import { get, set, del } from 'idb-keyval';
 import {
   SurveyPoint,
   TileLayerType,
   Language,
+  Hemisphere,
   MeasurePoint,
   UTMCoordinate,
   PointMoveHistory,
   ToastMessage,
   ToastType,
   MapPopoverCoords,
+  TempMapClickCoords,
   ContextMenuData,
   ExportSettings,
+  Annotation,
+  AnnotationLine,
+  AnnotationText,
+  AnnotationPoint,
+  ImportResult,
 } from '../types';
 import { latLngToUTM, utmToLatLng, calculateHaversineDistance } from '../utils/utm';
+import { fetchElevation } from '../utils/elevation';
+
+const idbStorage: StateStorage = {
+  getItem: async (name: string): Promise<string | null> => {
+    return (await get(name)) || null;
+  },
+  setItem: async (name: string, value: string): Promise<void> => {
+    await set(name, value);
+  },
+  removeItem: async (name: string): Promise<void> => {
+    await del(name);
+  },
+};
 
 interface AppState {
   // Survey Points State
@@ -30,9 +51,17 @@ interface AppState {
 
   // App UI & Settings
   language: Language;
+  defaultHemisphere: Hemisphere;
   sidebarOpen: boolean;
   searchQuery: string;
   selectedCategoryFilter: string;
+  autoFetchElevation: boolean;
+
+  // Two Point Measurement State
+  pointAMeasureId: string | null;
+  pointBMeasureId: string | null;
+  setPointToPointMeasure: (ptAId: string | null, ptBId: string | null) => void;
+  setDefaultHemisphere: (hemi: Hemisphere) => void;
 
   // Interactive Modes
   isAddingPointMode: boolean;
@@ -40,11 +69,38 @@ interface AppState {
   isMeasuringMode: boolean;
   measurePoints: MeasurePoint[];
 
+  // Annotations State
+  annotations: Annotation[];
+  selectedAnnotationId: string | null;
+  movingAnnotationId: string | null;
+  isDrawingLineMode: boolean;
+  isAddingTextMode: boolean;
+  drawingLinePoints: AnnotationPoint[];
+  pendingTextLocation: AnnotationPoint | null;
+
   // Active Modals & Popovers
-  activeModal: 'add_point' | 'edit_point' | 'import_excel' | 'batch_zone' | 'export_excel' | null;
-  tempMapClickCoords: { lat: number; lng: number; utm: UTMCoordinate } | null;
+  activeModal:
+    | 'add_point'
+    | 'edit_point'
+    | 'import_excel'
+    | 'batch_zone'
+    | 'export_excel'
+    | 'export_preview'
+    | 'import_options'
+    | 'import_result'
+    | 'settings'
+    | 'converter'
+    | 'two_point_measure'
+    | null;
+  tempMapClickCoords: TempMapClickCoords | null;
   quickMapPopover: MapPopoverCoords | null;
   contextMenu: ContextMenuData | null;
+
+  // New Export/Import States
+  exportFormat: 'excel' | 'geojson' | 'backup' | null;
+  importFile: File | null;
+  importFileType: 'geojson' | 'backup' | null;
+  importResult: ImportResult | null;
 
   // History & Toasts
   lastMovedPoint: PointMoveHistory | null;
@@ -66,10 +122,16 @@ interface AppState {
   setActiveTileLayer: (layer: TileLayerType) => void;
   setLanguage: (lang: Language) => void;
   setManualZoneOverride: (zone: number | null) => void;
+  setAutoFetchElevation: (enabled: boolean) => void;
 
   setSidebarOpen: (open: boolean) => void;
   setSearchQuery: (query: string) => void;
   setSelectedCategoryFilter: (category: string) => void;
+
+  // Custom user categories
+  categories: string[];
+  addCategory: (name: string) => void;
+  deleteCategory: (name: string) => void;
 
   setIsAddingPointMode: (active: boolean) => void;
   setIsContinuousAddMode: (active: boolean) => void;
@@ -77,10 +139,47 @@ interface AppState {
   addMeasurePoint: (pt: MeasurePoint) => void;
   clearMeasurePoints: () => void;
 
+  // Annotations Actions
+  setIsDrawingLineMode: (active: boolean) => void;
+  setIsAddingTextMode: (active: boolean) => void;
+  addDrawingLinePoint: (pt: AnnotationPoint) => void;
+  undoDrawingLinePoint: () => void;
+  cancelDrawingLine: () => void;
+  saveDrawingLine: (opts: { name?: string; color: string; weight: number; dashArray?: string }) => void;
+  setPendingTextLocation: (loc: AnnotationPoint | null) => void;
+  saveTextLabel: (opts: { content: string; color: string; fontSize: number }) => void;
+  updateAnnotation: (id: string, updates: Partial<Annotation>) => void;
+  deleteAnnotation: (id: string) => void;
+  clearAllAnnotations: () => void;
+  setSelectedAnnotationId: (id: string | null) => void;
+  setMovingAnnotationId: (id: string | null) => void;
+
+  // Project Import/Export Actions
+  replaceProjectData: (points: SurveyPoint[], annotations: Annotation[], settings?: any) => void;
+  mergeProjectData: (points: SurveyPoint[], annotations: Annotation[]) => void;
+
   setExportSettings: (settings: ExportSettings) => void;
 
-  setActiveModal: (modal: 'add_point' | 'edit_point' | 'import_excel' | 'batch_zone' | 'export_excel' | null) => void;
-  setTempMapClickCoords: (coords: { lat: number; lng: number; utm: UTMCoordinate } | null) => void;
+  setActiveModal: (
+    modal:
+      | 'add_point'
+      | 'edit_point'
+      | 'import_excel'
+      | 'batch_zone'
+      | 'export_excel'
+      | 'export_preview'
+      | 'import_options'
+      | 'import_result'
+      | 'settings'
+      | 'converter'
+      | 'two_point_measure'
+      | null
+  ) => void;
+
+  setExportFormat: (format: 'excel' | 'geojson' | 'backup' | null) => void;
+  setImportFile: (file: File | null, type: 'geojson' | 'backup' | null) => void;
+  setImportResult: (result: ImportResult | null) => void;
+  setTempMapClickCoords: (coords: TempMapClickCoords | null) => void;
   setQuickMapPopover: (popover: MapPopoverCoords | null) => void;
   setContextMenu: (menu: ContextMenuData | null) => void;
 
@@ -88,44 +187,44 @@ interface AppState {
   hideToast: () => void;
 }
 
-// Initial default sample points
+// Initial default sample points (Iraq focus)
 const INITIAL_SAMPLE_POINTS: SurveyPoint[] = [
   {
     id: 'sample_01',
-    name: 'نقطة المرجعية الأولى - برج المملكة',
-    description: 'نقطة ضبط أرضي ثنائية الإحداثيات UTM Zone 38N',
-    utm: { zone: 38, hemisphere: 'N', easting: 280124.45, northing: 2734180.20 },
-    lat: 24.7116,
-    lng: 46.6744,
+    name: 'نقطة المرجعية المركزية - بغداد',
+    description: 'نقطة ضبط أرضي (GCP) مركز بغداد - Zone 38N',
+    utm: { zone: 38, hemisphere: 'N', easting: 441010.50, northing: 3686520.80 },
+    lat: 33.3152,
+    lng: 44.3661,
     timestamp: new Date().toISOString(),
-    category: 'control_point',
-    elevation: 612.5,
+    category: '',
+    elevation: 34.0,
     color: '#10b981',
     isLocked: false,
   },
   {
     id: 'sample_02',
-    name: 'مرجع مساحي - الكعبة المشرفة',
-    description: 'نقطة مرجعية مركزية المنطقة 37N',
-    utm: { zone: 37, hemisphere: 'N', easting: 588210.15, northing: 2369040.80 },
-    lat: 21.4225,
-    lng: 39.8262,
+    name: 'مرجع شمالي - أربيل',
+    description: 'نقطة حدود شمال العراق - Zone 38N',
+    utm: { zone: 38, hemisphere: 'N', easting: 410850.10, northing: 4005600.30 },
+    lat: 36.1901,
+    lng: 44.0091,
     timestamp: new Date().toISOString(),
-    category: 'boundary',
-    elevation: 298.0,
+    category: '',
+    elevation: 415.0,
     color: '#f59e0b',
     isLocked: true,
   },
   {
     id: 'sample_03',
-    name: 'نقطة حد المشروع الشمالية',
-    description: 'حد القارعة للموقع العام - Zone 38N',
-    utm: { zone: 38, hemisphere: 'N', easting: 284500.00, northing: 2741200.00 },
-    lat: 24.7742,
-    lng: 46.7180,
+    name: 'نقطة حد الميناء الجنوبية - البصرة',
+    description: 'منسوب ارتفاع وبنية تحتية جنوب العراق - Zone 38N',
+    utm: { zone: 38, hemisphere: 'N', easting: 767200.00, northing: 3378300.00 },
+    lat: 30.5081,
+    lng: 47.7835,
     timestamp: new Date().toISOString(),
-    category: 'boundary',
-    elevation: 625.0,
+    category: '',
+    elevation: 5.5,
     color: '#3b82f6',
     isLocked: false,
   },
@@ -138,7 +237,7 @@ export const useStore = create<AppState>()(
       selectedPointId: null,
       editingPoint: null,
 
-      activeTileLayer: 'satellite',
+      activeTileLayer: 'hybrid',
       manualZoneOverride: null,
 
       exportSettings: {
@@ -147,19 +246,40 @@ export const useStore = create<AppState>()(
       },
 
       language: 'ar',
+      defaultHemisphere: 'S',
       sidebarOpen: true,
       searchQuery: '',
+      categories: [],
       selectedCategoryFilter: 'all',
+      autoFetchElevation: true,
+
+      pointAMeasureId: null,
+      pointBMeasureId: null,
+      setPointToPointMeasure: (ptAId, ptBId) => set({ pointAMeasureId: ptAId, pointBMeasureId: ptBId }),
+      setDefaultHemisphere: (hemi) => set({ defaultHemisphere: hemi }),
 
       isAddingPointMode: false,
       isContinuousAddMode: false,
       isMeasuringMode: false,
       measurePoints: [],
 
+      annotations: [],
+      selectedAnnotationId: null,
+      movingAnnotationId: null,
+      isDrawingLineMode: false,
+      isAddingTextMode: false,
+      drawingLinePoints: [],
+      pendingTextLocation: null,
+
       activeModal: null,
       tempMapClickCoords: null,
       quickMapPopover: null,
       contextMenu: null,
+
+      exportFormat: null,
+      importFile: null,
+      importFileType: null,
+      importResult: null,
 
       lastMovedPoint: null,
       toast: null,
@@ -175,6 +295,10 @@ export const useStore = create<AppState>()(
 
         const isContinuous = get().isContinuousAddMode;
 
+        if (newPoint.category) {
+          get().addCategory(newPoint.category);
+        }
+
         set((state) => ({
           points: [newPoint, ...state.points],
           selectedPointId: newPoint.id,
@@ -184,6 +308,19 @@ export const useStore = create<AppState>()(
           quickMapPopover: null,
         }));
 
+        // Auto fetch elevation if missing and autoFetchElevation is enabled
+        if ((newPoint.elevation === undefined || newPoint.elevation === null) && get().autoFetchElevation) {
+          fetchElevation(newPoint.lat, newPoint.lng).then((elev) => {
+            if (elev !== null) {
+              set((state) => ({
+                points: state.points.map((pt) =>
+                  pt.id === newPoint.id ? { ...pt, elevation: elev } : pt
+                ),
+              }));
+            }
+          });
+        }
+
         get().showToast(
           get().language === 'ar' ? 'تم إضافة النقطة بنجاح' : 'Point added successfully',
           'success'
@@ -191,6 +328,10 @@ export const useStore = create<AppState>()(
       },
 
       updatePoint: (id, updates) => {
+        if (updates.category) {
+          get().addCategory(updates.category);
+        }
+
         set((state) => ({
           points: state.points.map((pt) => {
             if (pt.id !== id) return pt;
@@ -213,8 +354,23 @@ export const useStore = create<AppState>()(
           activeModal: null,
         }));
 
+        if ((updates.lat !== undefined || updates.lng !== undefined) && updates.elevation === undefined && get().autoFetchElevation) {
+          const updatedPt = get().points.find((p) => p.id === id);
+          if (updatedPt) {
+            fetchElevation(updatedPt.lat, updatedPt.lng).then((elev) => {
+              if (elev !== null) {
+                set((state) => ({
+                  points: state.points.map((pt) =>
+                    pt.id === id ? { ...pt, elevation: elev } : pt
+                  ),
+                }));
+              }
+            });
+          }
+        }
+
         get().showToast(
-          get().language === 'ar' ? 'تم تحديث النقطة المساحية' : 'Point updated',
+          get().language === 'ar' ? 'تم تحديث النقطة' : 'Point updated',
           'info'
         );
       },
@@ -361,8 +517,8 @@ export const useStore = create<AppState>()(
         );
       },
 
-      setSelectedPointId: (id) => set({ selectedPointId: id }),
-      setEditingPoint: (point) => set({ editingPoint: point }),
+      setSelectedPointId: (id) => set({ selectedPointId: id, quickMapPopover: null }),
+      setEditingPoint: (point) => set({ editingPoint: point, quickMapPopover: null, contextMenu: null }),
       setActiveTileLayer: (layer) => set({ activeTileLayer: layer }),
 
       setLanguage: (lang) => {
@@ -383,15 +539,37 @@ export const useStore = create<AppState>()(
         }
       },
 
+      setAutoFetchElevation: (enabled) => set({ autoFetchElevation: enabled }),
+
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
       setSearchQuery: (query) => set({ searchQuery: query }),
       setSelectedCategoryFilter: (category) => set({ selectedCategoryFilter: category }),
+
+      addCategory: (name) => {
+        const trimmed = name.trim();
+        if (!trimmed) return;
+        set((state) => {
+          if (state.categories.some((c) => c.toLowerCase() === trimmed.toLowerCase())) {
+            return state;
+          }
+          return { categories: [...state.categories, trimmed] };
+        });
+      },
+
+      deleteCategory: (name) => {
+        set((state) => ({
+          categories: state.categories.filter((c) => c !== name),
+        }));
+      },
 
       setIsAddingPointMode: (active) =>
         set((state) => ({
           isAddingPointMode: active,
           isContinuousAddMode: active ? state.isContinuousAddMode : false,
           isMeasuringMode: false,
+          isDrawingLineMode: false,
+          isAddingTextMode: false,
+          drawingLinePoints: [],
         })),
 
       setIsContinuousAddMode: (active) =>
@@ -399,6 +577,9 @@ export const useStore = create<AppState>()(
           isContinuousAddMode: active,
           isAddingPointMode: active,
           isMeasuringMode: false,
+          isDrawingLineMode: false,
+          isAddingTextMode: false,
+          drawingLinePoints: [],
         }),
 
       setIsMeasuringMode: (active) =>
@@ -406,18 +587,142 @@ export const useStore = create<AppState>()(
           isMeasuringMode: active,
           isAddingPointMode: false,
           isContinuousAddMode: false,
+          isDrawingLineMode: false,
+          isAddingTextMode: false,
+          drawingLinePoints: [],
           measurePoints: active ? [] : [],
         }),
 
       addMeasurePoint: (pt) => set((state) => ({ measurePoints: [...state.measurePoints, pt] })),
       clearMeasurePoints: () => set({ measurePoints: [] }),
 
+      // Annotations Actions
+      
+      clearAllAnnotations: () => {
+        set({ annotations: [], selectedAnnotationId: null });
+        get().showToast(
+          get().language === 'ar' ? 'تم مسح جميع العناصر التوضيحية' : 'All annotations cleared',
+          'warning'
+        );
+      },
+
+      replaceProjectData: (points, annotations, settings) => {
+        const importedCats = Array.from(new Set(points.map((p) => p.category).filter(Boolean))) as string[];
+        set((state) => ({
+          points,
+          annotations,
+          selectedPointId: null,
+          selectedAnnotationId: null,
+          categories: Array.from(new Set([...state.categories, ...importedCats])),
+          activeTileLayer: settings?.activeTileLayer ?? state.activeTileLayer,
+          manualZoneOverride: settings?.manualZoneOverride !== undefined ? settings.manualZoneOverride : state.manualZoneOverride,
+          autoFetchElevation: settings?.autoFetchElevation ?? state.autoFetchElevation,
+          isContinuousAddMode: settings?.isContinuousAddMode ?? state.isContinuousAddMode,
+        }));
+      },
+
+      mergeProjectData: (points, annotations) => {
+        set((state) => {
+          const existingIds = new Set(state.points.map((p) => p.id));
+          const existingCoordsKeys = new Set(state.points.map((p) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`));
+
+          const filteredPoints = points.filter((p) => {
+            const hasId = existingIds.has(p.id);
+            const hasCoords = existingCoordsKeys.has(`${p.lat.toFixed(6)},${p.lng.toFixed(6)}`);
+            return !hasId && !hasCoords;
+          });
+
+          const existingAnnIds = new Set(state.annotations.map((a) => a.id));
+          const filteredAnnotations = annotations.filter((a) => !existingAnnIds.has(a.id));
+
+          const importedCats = Array.from(new Set(points.map((p) => p.category).filter(Boolean))) as string[];
+
+          return {
+            points: [...state.points, ...filteredPoints],
+            annotations: [...state.annotations, ...filteredAnnotations],
+            categories: Array.from(new Set([...state.categories, ...importedCats])),
+          };
+        });
+      },
+
+      setIsDrawingLineMode: (active) => set((s) => ({
+        isDrawingLineMode: active,
+        isAddingTextMode: false,
+        isAddingPointMode: false,
+        isMeasuringMode: active ? false : s.isMeasuringMode,
+        drawingLinePoints: active ? [] : s.drawingLinePoints,
+        pendingTextLocation: null,
+        quickMapPopover: null,
+      })),
+      
+      setIsAddingTextMode: (active) => set((s) => ({
+        isAddingTextMode: active,
+        isDrawingLineMode: false,
+        isAddingPointMode: false,
+        isMeasuringMode: active ? false : s.isMeasuringMode,
+        drawingLinePoints: [],
+        quickMapPopover: null,
+      })),
+      
+      addDrawingLinePoint: (pt) => set((s) => ({ drawingLinePoints: [...s.drawingLinePoints, pt] })),
+      undoDrawingLinePoint: () => set((s) => ({ drawingLinePoints: s.drawingLinePoints.slice(0, -1) })),
+      cancelDrawingLine: () => set({ drawingLinePoints: [], isDrawingLineMode: false }),
+      
+      saveDrawingLine: (opts: { name?: string; color: string; weight: number; dashArray?: string }) => set((s) => {
+        if (s.drawingLinePoints.length < 2) return { drawingLinePoints: [] };
+        const line: AnnotationLine = {
+          id: `line_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          type: 'line',
+          name: opts.name?.trim() || `خط-${s.annotations.filter(a => a.type === 'line').length + 1}`,
+          points: s.drawingLinePoints,
+          color: opts.color,
+          weight: opts.weight,
+          dashArray: opts.dashArray,
+          createdAt: new Date().toISOString(),
+        };
+        return { annotations: [...s.annotations, line], drawingLinePoints: [], isDrawingLineMode: false };
+      }),
+      
+      setPendingTextLocation: (loc) => set({ pendingTextLocation: loc }),
+      
+      saveTextLabel: (opts: { content: string; color: string; fontSize: number }) => set((s) => {
+        if (!s.pendingTextLocation || !opts.content.trim()) return {};
+        const t: AnnotationText = {
+          id: `text_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          type: 'text',
+          content: opts.content.trim(),
+          lat: s.pendingTextLocation.lat,
+          lng: s.pendingTextLocation.lng,
+          utm: s.pendingTextLocation.utm,
+          fontSize: opts.fontSize,
+          color: opts.color,
+          createdAt: new Date().toISOString(),
+        };
+        return { annotations: [...s.annotations, t], pendingTextLocation: null, isAddingTextMode: false };
+      }),
+      
+      updateAnnotation: (id, updates) => set((s) => ({
+        annotations: s.annotations.map(a => (a.id === id ? ({ ...a, ...updates } as Annotation) : a)),
+      })),
+      
+      deleteAnnotation: (id) => set((s) => ({
+        annotations: s.annotations.filter(a => a.id !== id),
+        selectedAnnotationId: s.selectedAnnotationId === id ? null : s.selectedAnnotationId,
+        movingAnnotationId: s.movingAnnotationId === id ? null : s.movingAnnotationId,
+      })),
+      
+      setSelectedAnnotationId: (id) => set({ selectedAnnotationId: id, movingAnnotationId: null }),
+      setMovingAnnotationId: (id) => set({ movingAnnotationId: id }),
+
       setExportSettings: (settings) => set({ exportSettings: settings }),
 
-      setActiveModal: (modal) => set({ activeModal: modal }),
+      setActiveModal: (modal) => set({ activeModal: modal, quickMapPopover: null, contextMenu: null }),
+      setExportFormat: (format) => set({ exportFormat: format }),
+      setImportFile: (file, type) => set({ importFile: file, importFileType: type }),
+      setImportResult: (result) => set({ importResult: result }),
       setTempMapClickCoords: (coords) => set({ tempMapClickCoords: coords }),
-      setQuickMapPopover: (popover) => set({ quickMapPopover: popover }),
-      setContextMenu: (menu) => set({ contextMenu: menu }),
+      setQuickMapPopover: (popover) => set({ quickMapPopover: popover, contextMenu: popover ? null : get().contextMenu }),
+      setContextMenu: (menu) => set({ contextMenu: menu, quickMapPopover: menu ? null : get().quickMapPopover }),
 
       showToast: (text, type = 'info') => {
         set({
@@ -433,14 +738,28 @@ export const useStore = create<AppState>()(
     }),
     {
       name: 'utm-gis-surveyor-storage',
+      version: 2,
+      migrate: (persistedState: any, version: number) => {
+        if (version < 2 || !persistedState || persistedState.autoFetchElevation === undefined) {
+          return {
+            ...persistedState,
+            autoFetchElevation: true,
+          };
+        }
+        return persistedState;
+      },
       partialize: (state) => ({
         points: state.points,
+        annotations: state.annotations,
+        categories: state.categories,
         activeTileLayer: state.activeTileLayer,
         manualZoneOverride: state.manualZoneOverride,
         language: state.language,
+        autoFetchElevation: state.autoFetchElevation,
         isContinuousAddMode: state.isContinuousAddMode,
         exportSettings: state.exportSettings,
       }),
+      storage: createJSONStorage(() => idbStorage),
     }
   )
 );

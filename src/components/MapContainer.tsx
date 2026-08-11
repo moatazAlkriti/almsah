@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import { useStore } from '../store/useStore';
-import { latLngToUTM, formatUTMString, calculateHaversineDistance } from '../utils/utm';
+import { latLngToUTM, formatUTMString, calculateHaversineDistance, latLngToMGRS, utmToLatLng, calculateUTMDistance, calculateBearing } from '../utils/utm';
+import { fetchElevation } from '../utils/elevation';
 import { getTranslation } from '../utils/translations';
-import { TileLayerType, UTMCoordinate } from '../types';
-import { Crosshair, Ruler, MapPin, Layers, Lock, Sparkles, LocateFixed } from 'lucide-react';
+import { TileLayerType, UTMCoordinate, AnnotationText } from '../types';
+import { Crosshair, Ruler, MapPin, Layers, Lock, Sparkles, LocateFixed, Loader2, AlertCircle, RotateCw, Wifi, PenTool, Type } from 'lucide-react';
+import { AnnotationToolbar } from './AnnotationToolbar';
+import { LineEditorModal } from './LineEditorModal';
+import { TextEditorModal } from './TextEditorModal';
 
 // Custom SVG DivIcon generator with optional lock icon badge & selection animation
 function createCustomMarkerIcon(
@@ -88,6 +92,11 @@ export const MapContainer: React.FC = () => {
   const markersRef = useRef<Map<string, L.Marker>>(new Map());
   const measurePolylineRef = useRef<L.Polyline | null>(null);
   const measureMarkersRef = useRef<L.Marker[]>([]);
+  
+  const annotationsLayerGroupRef = useRef<L.FeatureGroup | null>(null);
+  const drawingLinePolylineRef = useRef<L.Polyline | null>(null);
+  const drawingLineMarkersRef = useRef<L.Marker[]>([]);
+  const twoPointMeasureLayerRef = useRef<L.FeatureGroup | null>(null);
 
   // Long press timer refs
   const longPressTimerRef = useRef<any>(null);
@@ -105,15 +114,27 @@ export const MapContainer: React.FC = () => {
   const isContinuousAddMode = useStore((s) => s.isContinuousAddMode);
   const isMeasuringMode = useStore((s) => s.isMeasuringMode);
   const measurePoints = useStore((s) => s.measurePoints);
+  const isDrawingLineMode = useStore((s) => s.isDrawingLineMode);
+  const isAddingTextMode = useStore((s) => s.isAddingTextMode);
+  const annotations = useStore((s) => s.annotations);
+  const selectedAnnotationId = useStore((s) => s.selectedAnnotationId);
+  const drawingLinePoints = useStore((s) => s.drawingLinePoints);
+
   const manualZoneOverride = useStore((s) => s.manualZoneOverride);
+  const autoFetchElevation = useStore((s) => s.autoFetchElevation);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const activeModal = useStore((s) => s.activeModal);
+  const pointAMeasureId = useStore((s) => s.pointAMeasureId);
+  const pointBMeasureId = useStore((s) => s.pointBMeasureId);
 
   const movePoint = useStore((s) => s.movePoint);
+  const updatePoint = useStore((s) => s.updatePoint);
   const setSelectedPointId = useStore((s) => s.setSelectedPointId);
   const setTempMapClickCoords = useStore((s) => s.setTempMapClickCoords);
   const setActiveModal = useStore((s) => s.setActiveModal);
   const addMeasurePoint = useStore((s) => s.addMeasurePoint);
+  const addDrawingLinePoint = useStore((s) => s.addDrawingLinePoint);
+  const setSelectedAnnotationId = useStore((s) => s.setSelectedAnnotationId);
   const setActiveTileLayer = useStore((s) => s.setActiveTileLayer);
   const setQuickMapPopover = useStore((s) => s.setQuickMapPopover);
   const setContextMenu = useStore((s) => s.setContextMenu);
@@ -125,6 +146,7 @@ export const MapContainer: React.FC = () => {
   // Cursor UTM display state
   const [cursorUtm, setCursorUtm] = useState<UTMCoordinate | null>(null);
   const [showLayerPicker, setShowLayerPicker] = useState(false);
+  
 
   const isAr = language === 'ar';
 
@@ -133,6 +155,8 @@ export const MapContainer: React.FC = () => {
     isAddingPointMode,
     isContinuousAddMode,
     isMeasuringMode,
+    isDrawingLineMode,
+    isAddingTextMode,
     manualZoneOverride,
     points,
     language,
@@ -144,12 +168,14 @@ export const MapContainer: React.FC = () => {
       isAddingPointMode,
       isContinuousAddMode,
       isMeasuringMode,
+      isDrawingLineMode,
+      isAddingTextMode,
       manualZoneOverride,
       points,
       language,
       isAr,
     };
-  }, [isAddingPointMode, isContinuousAddMode, isMeasuringMode, manualZoneOverride, points, language, isAr]);
+  }, [isAddingPointMode, isContinuousAddMode, isMeasuringMode, isDrawingLineMode, isAddingTextMode, manualZoneOverride, points, language, isAr]);
 
   const handleLocateUser = () => {
     if (!navigator.geolocation) {
@@ -175,16 +201,27 @@ export const MapContainer: React.FC = () => {
     );
   };
 
+  // Tile loading & error states
+  const [isTileLoading, setIsTileLoading] = useState(false);
+  const [hasTileError, setHasTileError] = useState(false);
+  const tileErrorCountRef = useRef(0);
+
+  const IRAQ_BOUNDS = L.latLngBounds([26.0, 35.0], [40.0, 52.0]);
+
   // 1. Initialize Map
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
     const map = L.map(mapContainerRef.current, {
-      center: [24.7116, 46.6744],
+      center: [33.3152, 44.3661], // Baghdad center
       zoom: 6,
+      minZoom: 5,
+      maxBounds: IRAQ_BOUNDS,
+      maxBoundsViscosity: 1.0,
       zoomControl: false,
       attributionControl: false,
-      tapHold: true, // leafet taphold support
+      preferCanvas: true,
+      tapHold: true, // leaflet taphold support
     });
 
     L.control.zoom({ position: language === 'ar' ? 'topleft' : 'topright' }).addTo(map);
@@ -212,6 +249,36 @@ export const MapContainer: React.FC = () => {
     return () => clearTimeout(timer);
   }, [sidebarOpen, activeModal, isMeasuringMode, isAddingPointMode, isContinuousAddMode]);
 
+  // Handle Tile Error & Fallback
+  const handleTileError = useCallback(() => {
+    tileErrorCountRef.current += 1;
+    setHasTileError(true);
+    
+    // If satellite fails repeatedly, suggest or auto switch to OSM Streets
+    if (tileErrorCountRef.current > 4 && activeTileLayer === 'satellite') {
+      showToast(
+        isAr ? 'فشل تحميل بعض بلاطات الأقمار الصناعية، تم الانتقال تلقائياً لخرائط الطرق' : 'Satellite tiles failed, switched automatically to Street Map',
+        'warning'
+      );
+      setActiveTileLayer('streets');
+      tileErrorCountRef.current = 0;
+    } else {
+      showToast(
+        getTranslation(language, 'mapTileError'),
+        'error'
+      );
+    }
+  }, [activeTileLayer, showToast, setActiveTileLayer, isAr, language]);
+
+  // Retry loading current tile layer
+  const handleRetryTiles = () => {
+    setHasTileError(false);
+    tileErrorCountRef.current = 0;
+    if (tileLayerRef.current) {
+      tileLayerRef.current.redraw();
+    }
+  };
+
   // 2. Tile Layer Sync
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -223,22 +290,41 @@ export const MapContainer: React.FC = () => {
       overlayLayerRef.current = null;
     }
 
+    setHasTileError(false);
+    setIsTileLoading(true);
+
     const provider = TILE_PROVIDERS[activeTileLayer];
     const newTileLayer = L.tileLayer(provider.url, {
       maxZoom: 19,
       attribution: provider.attribution,
       subdomains: provider.subdomains || ['a', 'b', 'c'],
+      keepBuffer: 4,
+      updateWhenIdle: true,
+    });
+
+    newTileLayer.on('loading', () => setIsTileLoading(true));
+    newTileLayer.on('load', () => {
+      setIsTileLoading(false);
+      tileErrorCountRef.current = 0;
+    });
+    newTileLayer.on('tileerror', () => {
+      setIsTileLoading(false);
+      handleTileError();
     });
 
     newTileLayer.addTo(map);
     tileLayerRef.current = newTileLayer;
 
     if (activeTileLayer === 'hybrid') {
-      const overlay = L.tileLayer(ESRI_REFERENCE_URL, { maxZoom: 19 });
+      const overlay = L.tileLayer(ESRI_REFERENCE_URL, { 
+        maxZoom: 19,
+        keepBuffer: 4,
+        updateWhenIdle: true,
+      });
       overlay.addTo(map);
       overlayLayerRef.current = overlay;
     }
-  }, [activeTileLayer]);
+  }, [activeTileLayer, handleTileError]);
 
   // 3. Mousemove Coords Display
   useEffect(() => {
@@ -257,119 +343,74 @@ export const MapContainer: React.FC = () => {
     };
   }, [manualZoneOverride]);
 
-  // 4. Map Click & Long Press Gesture Handler
+  // 4. Map Click Handler (Using store.getState() for fresh values)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    const handleMapClick = (e: L.LeafletMouseEvent) => {
-      if (isLongPressRef.current) {
-        isLongPressRef.current = false;
+    const handleClick = (e: L.LeafletMouseEvent) => {
+      const st = useStore.getState();
+      const { lat, lng } = e.latlng;
+      const utm = latLngToUTM(lat, lng, st.manualZoneOverride);
+
+      if (st.movingAnnotationId) {
+        const target = st.annotations.find(a => a.id === st.movingAnnotationId);
+        if (target) {
+          if (target.type === 'text') {
+            st.updateAnnotation(target.id, { lat, lng, utm });
+          } else if (target.type === 'line') {
+            let avgLat = 0, avgLng = 0;
+            target.points.forEach(p => { avgLat += p.lat; avgLng += p.lng; });
+            avgLat /= target.points.length;
+            avgLng /= target.points.length;
+            const dLat = lat - avgLat;
+            const dLng = lng - avgLng;
+            const newPoints = target.points.map(p => {
+              const nLat = p.lat + dLat;
+              const nLng = p.lng + dLng;
+              return { lat: nLat, lng: nLng, utm: latLngToUTM(nLat, nLng, st.manualZoneOverride) };
+            });
+            st.updateAnnotation(target.id, { points: newPoints });
+          }
+        }
+        st.setMovingAnnotationId(null);
         return;
       }
 
-      const { lat, lng } = e.latlng;
-      const {
-        isContinuousAddMode,
-        isAddingPointMode,
-        isMeasuringMode,
-        manualZoneOverride,
-        points,
-        isAr,
-      } = stateRef.current;
+      if (st.isDrawingLineMode) { st.addDrawingLinePoint({ lat, lng, utm }); return; }
+      if (st.isAddingTextMode)  { st.setPendingTextLocation({ lat, lng, utm }); return; }
+      if (st.isMeasuringMode)   { st.addMeasurePoint({ id: `m_${Date.now()}`, lat, lng, utm }); return; }
+      
+      if (st.isContinuousAddMode) {
+        const autoName = (st.language === 'ar')
+          ? `نقطة ${st.points.length + 1} (${utm.zone}${utm.hemisphere})`
+          : `Point ${st.points.length + 1} (${utm.zone}${utm.hemisphere})`;
 
-      const utm = latLngToUTM(lat, lng, manualZoneOverride);
-
-      if (isContinuousAddMode) {
-        // Continuous Add Mode: auto add point immediately!
-        const autoName = isAr
-          ? `نقطة ${points.length + 1} (${utm.zone}${utm.hemisphere})`
-          : `Point ${points.length + 1} (${utm.zone}${utm.hemisphere})`;
-
-        addPoint({
+        st.addPoint({
           name: autoName,
-          category: 'control_point',
+          category: '',
           utm,
           lat,
           lng,
           color: '#10b981',
         });
-      } else if (isAddingPointMode) {
-        setTempMapClickCoords({ lat, lng, utm });
-        setActiveModal('add_point');
-      } else if (isMeasuringMode) {
-        addMeasurePoint({
-          id: `m_${Date.now()}`,
-          lat,
-          lng,
-          utm,
-        });
-      } else {
-        // Normal click: open QuickMapPopover at click location
-        setContextMenu(null);
-        setQuickMapPopover({
-          lat,
-          lng,
-          utm,
-          x: e.originalEvent.clientX,
-          y: e.originalEvent.clientY,
-        });
+        return;
       }
-    };
 
-    // Long Press on Map
-    const handleMouseDownOrTouchStart = (e: L.LeafletMouseEvent | TouchEvent) => {
-      const origEvent = 'originalEvent' in e ? e.originalEvent : e;
-      const clientX = 'touches' in origEvent ? origEvent.touches[0].clientX : (origEvent as MouseEvent).clientX;
-      const clientY = 'touches' in origEvent ? origEvent.touches[0].clientY : (origEvent as MouseEvent).clientY;
-
-      longPressTimerRef.current = setTimeout(() => {
-        isLongPressRef.current = true;
-        let latlng: L.LatLng;
-        if ('latlng' in e) {
-          latlng = e.latlng;
-        } else {
-          latlng = map.containerPointToLatLng([clientX, clientY]);
-        }
-
-        const utm = latLngToUTM(latlng.lat, latlng.lng, stateRef.current.manualZoneOverride);
-        setContextMenu(null);
-        setQuickMapPopover({
-          lat: latlng.lat,
-          lng: latlng.lng,
-          utm,
-          x: clientX,
-          y: clientY,
-        });
-      }, 500);
-    };
-
-    const handleMouseUpOrTouchEnd = () => {
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
+      if (st.isAddingPointMode) { 
+        st.setTempMapClickCoords({ lat, lng, utm });
+        st.setActiveModal('add_point');
+        return; 
       }
+
+      st.setQuickMapPopover({ lat, lng, utm, x: e.originalEvent.clientX, y: e.originalEvent.clientY });
+      st.setContextMenu(null);
+      st.setSelectedAnnotationId(null);
     };
 
-    map.on('click', handleMapClick);
-    map.on('mousedown', handleMouseDownOrTouchStart as any);
-    map.on('mouseup', handleMouseUpOrTouchEnd);
-    map.on('dragstart', handleMouseUpOrTouchEnd);
-
-    return () => {
-      map.off('click', handleMapClick);
-      map.off('mousedown', handleMouseDownOrTouchStart as any);
-      map.off('mouseup', handleMouseUpOrTouchEnd);
-      map.off('dragstart', handleMouseUpOrTouchEnd);
-    };
-  }, [
-    addPoint,
-    setTempMapClickCoords,
-    setActiveModal,
-    addMeasurePoint,
-    setQuickMapPopover,
-    setContextMenu,
-  ]);
+    map.on('click', handleClick);
+    return () => { map.off('click', handleClick); };
+  }, []);
 
   // 5. Sync Markers on Map
   useEffect(() => {
@@ -401,6 +442,10 @@ export const MapContainer: React.FC = () => {
         const existingMarker = currentMarkers.get(pt.id)!;
         existingMarker.setLatLng([pt.lat, pt.lng]);
         existingMarker.setIcon(icon);
+
+        if (!map.hasLayer(existingMarker)) {
+          existingMarker.addTo(map);
+        }
 
         if (isLocked) {
           existingMarker.dragging?.disable();
@@ -455,6 +500,14 @@ export const MapContainer: React.FC = () => {
 
           const newLatLng = e.target.getLatLng();
           movePoint(pt.id, newLatLng.lat, newLatLng.lng);
+
+          if (autoFetchElevation) {
+            fetchElevation(newLatLng.lat, newLatLng.lng).then((newElev) => {
+              if (newElev !== null) {
+                updatePoint(pt.id, { elevation: newElev });
+              }
+            });
+          }
         });
 
         // Click marker -> select
@@ -548,6 +601,205 @@ export const MapContainer: React.FC = () => {
       });
     }
   }, [measurePoints]);
+
+  // Sync Temporary Drawing Line Points
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (drawingLinePolylineRef.current) {
+      drawingLinePolylineRef.current.remove();
+      drawingLinePolylineRef.current = null;
+    }
+    drawingLineMarkersRef.current.forEach((m) => m.remove());
+    drawingLineMarkersRef.current = [];
+
+    if (drawingLinePoints.length >= 2) {
+      const latLngs = drawingLinePoints.map((p) => [p.lat, p.lng] as [number, number]);
+      const polyline = L.polyline(latLngs, {
+        color: '#ef4444',
+        weight: 3,
+        dashArray: '5, 10',
+        interactive: false,
+      }).addTo(map);
+      drawingLinePolylineRef.current = polyline;
+    }
+
+    if (drawingLinePoints.length > 0) {
+      drawingLinePoints.forEach((pt, index) => {
+        const nodeIcon = L.divIcon({
+          html: `<div class="w-4 h-4 bg-rose-500 border border-white rounded-full shadow-md"></div>`,
+          className: 'drawing-node-icon',
+          iconSize: [16, 16],
+          iconAnchor: [8, 8],
+        });
+        const nodeMarker = L.marker([pt.lat, pt.lng], {
+          icon: nodeIcon,
+          interactive: false,
+        }).addTo(map);
+        drawingLineMarkersRef.current.push(nodeMarker);
+      });
+    }
+  }, [drawingLinePoints]);
+
+  // Sync Annotations
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (!annotationsLayerGroupRef.current || !map.hasLayer(annotationsLayerGroupRef.current)) {
+      if (annotationsLayerGroupRef.current) {
+        annotationsLayerGroupRef.current.remove();
+      }
+      annotationsLayerGroupRef.current = L.featureGroup().addTo(map);
+    }
+    const layerGroup = annotationsLayerGroupRef.current;
+    layerGroup.clearLayers();
+
+    annotations.forEach((annotation) => {
+      const isSelected = selectedAnnotationId === annotation.id;
+      
+      if (annotation.type === 'line') {
+        const latLngs = annotation.points.map(p => [p.lat, p.lng] as [number, number]);
+        
+        // Add a transparent thicker background polyline to make clicking easier
+        const hitArea = L.polyline(latLngs, {
+          color: 'transparent',
+          weight: Math.max(15, (annotation.weight || 3) + 10),
+          interactive: true,
+        });
+
+        const polyline = L.polyline(latLngs, {
+          color: isSelected ? '#ffffff' : (annotation.color || '#ef4444'),
+          weight: isSelected ? (annotation.weight || 3) + 2 : (annotation.weight || 3),
+          dashArray: annotation.dashArray,
+          interactive: true,
+          className: isSelected ? 'drop-shadow-md' : '',
+        });
+
+        hitArea.on('click', (e) => {
+          L.DomEvent.stopPropagation(e);
+          setSelectedAnnotationId(annotation.id);
+        });
+        
+        polyline.on('click', (e) => {
+          L.DomEvent.stopPropagation(e);
+          setSelectedAnnotationId(annotation.id);
+        });
+
+        hitArea.addTo(layerGroup);
+        polyline.addTo(layerGroup);
+        
+      } else if (annotation.type === 'text') {
+        const rotation = annotation.rotation || 0;
+        const color = annotation.color || '#ffffff';
+        const bg = annotation.backgroundColor || 'transparent';
+        const fontSize = annotation.fontSize || 16;
+        
+        const html = `
+          <div 
+            class="transition-all ${isSelected ? 'ring-2 ring-amber-500 scale-105 z-50' : 'hover:scale-105 z-40'}"
+            style="
+              color: ${color}; 
+              font-size: ${fontSize}px; 
+              background-color: ${bg}; 
+              transform: rotate(${rotation}deg);
+              padding: ${bg !== 'transparent' ? '4px 8px' : '0'};
+              border-radius: 4px;
+              text-shadow: ${bg === 'transparent' ? '0px 0px 3px rgba(0,0,0,0.8), 1px 1px 2px rgba(0,0,0,0.8)' : 'none'};
+              font-weight: bold;
+              white-space: nowrap;
+              transform-origin: center center;
+              cursor: pointer;
+            "
+          >
+            ${annotation.content}
+          </div>
+        `;
+        
+        const icon = L.divIcon({
+          html,
+          className: 'annotation-text-label',
+          iconSize: undefined,
+        });
+        
+        const marker = L.marker([annotation.lat, annotation.lng], {
+          icon,
+          interactive: true,
+        });
+        
+        marker.on('click', (e) => {
+          L.DomEvent.stopPropagation(e);
+          setSelectedAnnotationId(annotation.id);
+        });
+        
+        marker.addTo(layerGroup);
+      }
+    });
+  }, [annotations, selectedAnnotationId, setSelectedAnnotationId]);
+
+  // Sync Two-Point Measurement path and floating badge
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (!twoPointMeasureLayerRef.current || !map.hasLayer(twoPointMeasureLayerRef.current)) {
+      if (twoPointMeasureLayerRef.current) twoPointMeasureLayerRef.current.remove();
+      twoPointMeasureLayerRef.current = L.featureGroup().addTo(map);
+    }
+
+    const layerGroup = twoPointMeasureLayerRef.current;
+    layerGroup.clearLayers();
+
+    if (pointAMeasureId && pointBMeasureId) {
+      const ptA = points.find((p) => p.id === pointAMeasureId);
+      const ptB = points.find((p) => p.id === pointBMeasureId);
+
+      if (ptA && ptB) {
+        const latLngs: [number, number][] = [
+          [ptA.lat, ptA.lng],
+          [ptB.lat, ptB.lng],
+        ];
+
+        // Draw dashed measurement line
+        const polyline = L.polyline(latLngs, {
+          color: '#f59e0b',
+          weight: 4,
+          dashArray: '8, 8',
+          interactive: false,
+        });
+        polyline.addTo(layerGroup);
+
+        // Calculate midpoint, distance & azimuth bearing
+        const midLat = (ptA.lat + ptB.lat) / 2;
+        const midLng = (ptA.lng + ptB.lng) / 2;
+        const dist = calculateUTMDistance(ptA.utm, ptB.utm);
+        const bearing = calculateBearing(ptA.lat, ptA.lng, ptB.lat, ptB.lng);
+
+        const html = `
+          <div class="bg-amber-950/95 border-2 border-amber-400 text-amber-200 px-3 py-1.5 rounded-xl shadow-2xl font-mono text-xs font-bold text-center -translate-x-1/2 -translate-y-1/2 flex flex-col gap-0.5 whitespace-nowrap">
+            <div>📏 ${dist.toFixed(2)} m</div>
+            <div class="text-[10px] text-amber-300 font-sans">Azimuth: ${bearing.toFixed(1)}°</div>
+          </div>
+        `;
+
+        const badgeIcon = L.divIcon({
+          html,
+          className: 'twopt-measure-badge',
+          iconSize: [120, 40],
+          iconAnchor: [60, 20],
+        });
+
+        L.marker([midLat, midLng], { icon: badgeIcon, interactive: false }).addTo(layerGroup);
+
+        // Zoom map to show both points
+        map.fitBounds(L.latLngBounds([ptA.lat, ptA.lng], [ptB.lat, ptB.lng]), {
+          padding: [60, 60],
+          maxZoom: 18,
+        });
+      }
+    }
+  }, [pointAMeasureId, pointBMeasureId, points]);
 
   // 8. Global Keyboard Shortcuts Handler
   useEffect(() => {
@@ -656,15 +908,55 @@ export const MapContainer: React.FC = () => {
         </div>
       )}
 
+
+      {/* Map Tile Loading Indicator & Retry / Error Banner */}
+      {isTileLoading && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[1000] bg-slate-900/90 border border-slate-700/80 text-slate-200 px-3 py-1.5 rounded-full shadow-lg flex items-center gap-2 text-xs font-medium backdrop-blur-md">
+          <Loader2 className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
+          <span>{getTranslation(language, 'mapLoading')}</span>
+        </div>
+      )}
+
+      {hasTileError && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[1000] bg-rose-950/90 border border-rose-500/50 text-rose-200 px-4 py-2 rounded-2xl shadow-2xl flex items-center gap-3 text-xs font-medium backdrop-blur-md">
+          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+          <span>{getTranslation(language, 'mapTileError')}</span>
+          <button
+            onClick={handleRetryTiles}
+            className="flex items-center gap-1 bg-rose-500 hover:bg-rose-600 text-white px-2.5 py-1 rounded-xl text-xs font-bold transition-all shadow-md"
+          >
+            <RotateCw className="w-3 h-3" />
+            <span>{getTranslation(language, 'mapRetry')}</span>
+          </button>
+        </div>
+      )}
+
       {/* Floating Action Controls (GPS Location + Map Layer Switcher) */}
-      <div className={`absolute bottom-20 sm:bottom-12 md:bottom-6 ${language === 'ar' ? 'left-3 sm:left-4' : 'right-3 sm:right-4'} z-[990] flex flex-col gap-2 items-end`}>
+      <div
+        dir="ltr"
+        className={`absolute bottom-20 sm:bottom-12 md:bottom-6 ${
+          isAr ? 'left-3 sm:left-4 items-start' : 'right-3 sm:right-4 items-end'
+        } z-[990] flex flex-col gap-2`}
+      >
         {/* GPS My Location FAB Button */}
         <button
           onClick={handleLocateUser}
-          className="p-3 bg-slate-900 border border-slate-700/80 hover:bg-slate-800 text-emerald-400 rounded-2xl shadow-2xl transition-all active:scale-95 flex items-center justify-center group"
+          className={`group relative flex ${
+            isAr ? 'flex-row' : 'flex-row-reverse'
+          } items-center h-12 rounded-2xl bg-slate-900/90 border border-slate-700/80 hover:bg-slate-800 text-emerald-400 shadow-2xl transition-all duration-300 ease-out cursor-pointer overflow-hidden active:scale-95`}
           title={isAr ? 'موقعي الميداني الحالي GPS' : 'My Current GPS Location'}
         >
-          <LocateFixed className="w-5 h-5 group-hover:scale-110 transition-transform" />
+          <div className="w-12 h-12 flex items-center justify-center shrink-0">
+            <LocateFixed className="w-5 h-5 group-hover:scale-110 transition-transform" />
+          </div>
+          <span
+            dir={isAr ? 'rtl' : 'ltr'}
+            className={`max-w-0 opacity-0 group-hover:max-w-xs group-hover:opacity-100 ${
+              isAr ? 'group-hover:pr-3.5 group-hover:pl-1' : 'group-hover:pl-3.5 group-hover:pr-1'
+            } text-xs font-bold text-slate-200 whitespace-nowrap transition-all duration-300 ease-out`}
+          >
+            {isAr ? 'موقعي الميداني GPS' : 'My GPS Location'}
+          </span>
         </button>
 
         {/* Map Tile Switcher */}
@@ -712,8 +1004,19 @@ export const MapContainer: React.FC = () => {
           <span className="font-semibold text-slate-100 tracking-wide">
             {cursorUtm ? formatUTMString(cursorUtm, language) : '---'}
           </span>
+          {cursorUtm && (
+            <span className="text-[10px] bg-slate-900 border border-slate-800 text-amber-400 px-2 py-0.5 rounded-full font-bold">
+              MGRS: {(() => {
+                const pt = utmToLatLng(cursorUtm);
+                return latLngToMGRS(pt.lat, pt.lng);
+              })()}
+            </span>
+          )}
         </div>
       </div>
+      
+      <AnnotationToolbar />
+      
     </div>
   );
 };

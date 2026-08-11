@@ -7,13 +7,7 @@ export interface UTMCoordinate {
   hemisphere: Hemisphere; // 'N' for Northern, 'S' for Southern
 }
 
-export type PointCategory = 
-  | 'control_point'    // نقطة ضبط أرضي (GCP)
-  | 'boundary'         // نقطة حدود
-  | 'elevation'        // منسوب / ارتفاع
-  | 'infrastructure'   // بنية تحتية
-  | 'feature'          // معلم جغرافي
-  | 'other';           // أخرى
+export type PointCategory = string;
 
 export interface SurveyPoint {
   id: string;
@@ -55,6 +49,14 @@ export interface MapPopoverCoords {
   utm: UTMCoordinate;
   x: number;
   y: number;
+  elevation?: number;
+}
+
+export interface TempMapClickCoords {
+  lat: number;
+  lng: number;
+  utm: UTMCoordinate;
+  elevation?: number;
 }
 
 export interface ContextMenuData {
@@ -79,6 +81,7 @@ export type ExportColumnKey =
   | 'elevation'
   | 'latitude'
   | 'longitude'
+  | 'mgrs'
   | 'timestamp';
 
 export interface ExportSettings {
@@ -96,4 +99,32 @@ export interface MeasurePoint {
 export interface DistanceMeasurement {
   points: MeasurePoint[];
   totalDistanceMeters: number;
+}
+
+export type AnnotationType = 'line' | 'text';
+
+export interface AnnotationPoint { lat: number; lng: number; utm: UTMCoordinate; }
+
+export interface AnnotationLine {
+  id: string; type: 'line'; name: string;
+  points: AnnotationPoint[];
+  color: string; weight: number; dashArray?: string;
+  createdAt: string;
+}
+
+export interface AnnotationText {
+  id: string; type: 'text'; content: string;
+  lat: number; lng: number; utm: UTMCoordinate;
+  fontSize: number; color: string;
+  backgroundColor?: string; rotation?: number;
+  createdAt: string;
+}
+
+export type Annotation = AnnotationLine | AnnotationText;
+
+export interface ImportResult {
+  pointsCount: number;
+  linesCount: number;
+  labelsCount: number;
+  warnings: string[];
 }

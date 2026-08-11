@@ -1,8 +1,43 @@
 @import "tailwindcss";
 
+@theme {
+  --color-oled-black: #000000;
+  --color-oled-dark: #121212;
+  --color-oled-midnight: #0A0E27;
+
+  --color-neon-green: #39FF14;
+  --color-electric-blue: #0080FF;
+  --color-gold: #FFD700;
+  --color-plasma-purple: #BF00FF;
+
+  /* Map standard dark slate shades to true OLED black (#000000), dark grey (#121212), and midnight blue (#0A0E27) */
+  --color-slate-950: #000000;
+  --color-slate-900: #121212;
+  --color-slate-800: #0A0E27;
+  --color-slate-700: #182042;
+  --color-slate-600: #253368;
+}
+
+:root {
+  --bg-black: #000000;
+  --bg-dark-grey: #121212;
+  --bg-midnight-blue: #0A0E27;
+  --text-primary: #ffffff;
+  --text-secondary: #e0e0e0;
+  --accent-neon: #39FF14;
+  --accent-electric: #0080FF;
+  --accent-gold: #FFD700;
+  --accent-purple: #BF00FF;
+  --glow-effect: 0 0 10px rgba(57, 255, 20, 0.3);
+  --oled-optimized: true;
+  color-scheme: dark;
+}
+
 @layer base {
   body {
-    font-family: 'Tajawal', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #000000;
+    color: #ffffff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Tajawal', system-ui, sans-serif;
   }
   
   .font-mono {
@@ -10,31 +45,62 @@
   }
 }
 
-/* Custom Scrollbars */
+/* OLED-Optimized Glow & High Contrast Utilities */
+.glow-neon-sm {
+  text-shadow: 0 0 8px rgba(57, 255, 20, 0.4);
+}
+
+.glow-blue-sm {
+  text-shadow: 0 0 8px rgba(0, 128, 255, 0.4);
+}
+
+.glow-gold-sm {
+  text-shadow: 0 0 8px rgba(255, 215, 0, 0.4);
+}
+
+.glow-purple-sm {
+  text-shadow: 0 0 8px rgba(191, 0, 255, 0.4);
+}
+
+.border-oled {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.border-neon-glow {
+  border-color: #39FF14;
+  box-shadow: 0 0 10px rgba(57, 255, 20, 0.25);
+}
+
+.border-blue-glow {
+  border-color: #0080FF;
+  box-shadow: 0 0 10px rgba(0, 128, 255, 0.25);
+}
+
+/* Custom OLED Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: #000000;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(51, 65, 85, 0.8);
-  border-radius: 9999px;
+  background: #182042;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 1);
+  background: #0080FF;
 }
 
-/* Leaflet Custom Map Overrides */
+/* Leaflet Custom Map Overrides for OLED Black */
 .leaflet-container {
   width: 100%;
   height: 100%;
-  background-color: #0f172a;
-  font-family: 'Tajawal', sans-serif !important;
+  background-color: #000000 !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Tajawal', sans-serif !important;
 }
 
 /* Restore proper Leaflet pane z-index hierarchy */
@@ -51,46 +117,47 @@
 }
 
 .leaflet-control-zoom {
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5) !important;
-  border-radius: 0.75rem !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.9) !important;
+  border-radius: 8px !important;
   overflow: hidden;
+  background-color: #000000 !important;
 }
 
 .leaflet-control-zoom a {
-  background-color: #1e293b !important;
-  color: #f1f5f9 !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  background-color: #121212 !important;
+  color: #ffffff !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12) !important;
   transition: all 0.2s ease;
 }
 
 .leaflet-control-zoom a:hover {
-  background-color: #334155 !important;
-  color: #38bdf8 !important;
+  background-color: #0A0E27 !important;
+  color: #39FF14 !important;
 }
 
 .leaflet-popup-content-wrapper {
-  background-color: #0f172a !important;
-  color: #f8fafc !important;
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
-  border-radius: 0.75rem !important;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.6) !important;
+  background-color: #121212 !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(0, 128, 255, 0.3) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.9), 0 0 8px rgba(0, 128, 255, 0.2) !important;
   padding: 4px !important;
 }
 
 .leaflet-popup-tip {
-  background-color: #0f172a !important;
-  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  background-color: #121212 !important;
+  border: 1px solid rgba(0, 128, 255, 0.3) !important;
 }
 
 .leaflet-container a.leaflet-popup-close-button {
-  color: #94a3b8 !important;
+  color: #9E9E9E !important;
   padding: 8px 8px 0 0 !important;
   font-size: 18px !important;
 }
 
 .leaflet-container a.leaflet-popup-close-button:hover {
-  color: #f43f5e !important;
+  color: #BF00FF !important;
 }
 
 /* Measure line dash style */
@@ -127,3 +194,4 @@
   animation: spinSlow 14s linear infinite;
 }
 
+.annotation-text-icon { background: transparent !important; border: none !important; }

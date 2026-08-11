@@ -128,7 +128,7 @@ export const ExcelImportModal: React.FC = () => {
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center gap-2 text-emerald-400 font-bold">
                   <FileCheck className="w-4 h-4" />
-                  <span>تم التعرف على {previewPoints.length} نقطة مساحية بنجاح</span>
+                  <span>تم التعرف على {previewPoints.length} نقطة بنجاح</span>
                 </div>
                 <button
                   onClick={() => setPreviewPoints(null)}

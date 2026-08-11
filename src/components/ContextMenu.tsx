@@ -1,7 +1,7 @@
 import React from 'react';
 import { useStore } from '../store/useStore';
-import { formatUTMString } from '../utils/utm';
-import { Lock, Unlock, Edit3, Copy, Navigation, Trash2, X, ShieldAlert } from 'lucide-react';
+import { formatUTMString, utmToLatLng, latLngToMGRS } from '../utils/utm';
+import { Lock, Unlock, Edit3, Copy, Navigation, Trash2, X, ShieldAlert, Ruler } from 'lucide-react';
 
 export const ContextMenu: React.FC = () => {
   const contextMenu = useStore((s) => s.contextMenu);
@@ -13,6 +13,7 @@ export const ContextMenu: React.FC = () => {
   const setEditingPoint = useStore((s) => s.setEditingPoint);
   const setActiveModal = useStore((s) => s.setActiveModal);
   const setSelectedPointId = useStore((s) => s.setSelectedPointId);
+  const setPointToPointMeasure = useStore((s) => s.setPointToPointMeasure);
   const deletePoint = useStore((s) => s.deletePoint);
   const showToast = useStore((s) => s.showToast);
 
@@ -30,6 +31,14 @@ export const ContextMenu: React.FC = () => {
     setContextMenu(null);
   };
 
+  const handleCopyMGRS = () => {
+    const { lat, lng } = utmToLatLng(point.utm);
+    const text = latLngToMGRS(lat, lng);
+    navigator.clipboard.writeText(text);
+    showToast(isAr ? 'تم نسخ إحداثيات MGRS العسكرية 📋' : 'MGRS coordinates copied 📋', 'success');
+    setContextMenu(null);
+  };
+
   const handleToggleLock = () => {
     togglePointLock(point.id);
     setContextMenu(null);
@@ -43,6 +52,12 @@ export const ContextMenu: React.FC = () => {
 
   const handleZoom = () => {
     setSelectedPointId(point.id);
+    setContextMenu(null);
+  };
+
+  const handleMeasureToPoint = () => {
+    setPointToPointMeasure(point.id, null);
+    showToast(isAr ? 'اختر النقطة الثانية من الخريطة للقياس' : 'Pick second point on map to measure', 'info');
     setContextMenu(null);
   };
 
@@ -65,10 +80,18 @@ export const ContextMenu: React.FC = () => {
   };
 
   return (
-    <div
-      style={popoverStyle}
-      className="fixed z-[3500] bg-slate-900/95 border border-slate-700/80 rounded-2xl shadow-2xl p-3 w-64 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150 space-y-2"
-    >
+    <>
+      <div
+        className="fixed inset-0 z-[3490] bg-transparent"
+        onClick={(e) => {
+          e.stopPropagation();
+          setContextMenu(null);
+        }}
+      />
+      <div
+        style={popoverStyle}
+        className="fixed z-[3500] bg-slate-900/95 border border-slate-700/80 rounded-2xl shadow-2xl p-3 w-64 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150 space-y-2"
+      >
       <div className="flex items-center justify-between border-b border-slate-800 pb-2">
         <div className="flex items-center gap-2 overflow-hidden">
           <span
@@ -123,6 +146,14 @@ export const ContextMenu: React.FC = () => {
         </button>
 
         <button
+          onClick={handleMeasureToPoint}
+          className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 flex items-center gap-2 transition-colors"
+        >
+          <Ruler className="w-4 h-4 text-amber-400" />
+          <span>{isAr ? 'قياس المسافة إلى نقطة أخرى' : 'Measure To Another Point'}</span>
+        </button>
+
+        <button
           onClick={handleEdit}
           className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-2 transition-colors"
         >
@@ -139,6 +170,14 @@ export const ContextMenu: React.FC = () => {
         </button>
 
         <button
+          onClick={handleCopyMGRS}
+          className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-2 transition-colors"
+        >
+          <Copy className="w-4 h-4 text-amber-400" />
+          <span>{isAr ? 'نسخ إحداثيات MGRS' : 'Copy MGRS Coords'}</span>
+        </button>
+
+        <button
           onClick={handleDelete}
           disabled={point.isLocked}
           className="w-full py-2 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 disabled:opacity-40 text-rose-300 border border-rose-500/30 flex items-center gap-2 transition-colors"
@@ -148,5 +187,6 @@ export const ContextMenu: React.FC = () => {
         </button>
       </div>
     </div>
+  </>
   );
 };

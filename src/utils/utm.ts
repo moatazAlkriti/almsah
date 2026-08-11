@@ -1,4 +1,5 @@
 import proj4 from 'proj4';
+import * as mgrs from 'mgrs';
 import { UTMCoordinate, Hemisphere } from '../types';
 
 // WGS84 Projection string
@@ -69,11 +70,100 @@ export function utmToLatLng(utm: UTMCoordinate): { lat: number; lng: number } {
   };
 }
 
+const MGRS_BANDS = 'CDEFGHJKLMNPQRSTUVWX'; // 20 نطاقاً، كل نطاق 8 درجات بدءاً من -80
+
+export function getMGRSBandFromLat(lat: number): string {
+  if (lat < -80 || lat > 84) return 'Z';
+  const idx = Math.floor((lat + 80) / 8);
+  return MGRS_BANDS[Math.min(idx, 19)];
+}
+
 export function getLatitudeBand(lat: number): string {
-  if (lat >= 84 || lat < -80) return '';
-  const bands = 'CDEFGHJKLMNPQRSTUVWX';
-  const index = Math.floor((lat + 80) / 8);
-  return bands.charAt(Math.max(0, Math.min(19, index)));
+  return getMGRSBandFromLat(lat);
+}
+
+export function mgrsToLatLng(mgrsStr: string): { lat: number; lng: number } | null {
+  try {
+    const cleanStr = mgrsStr.replace(/\s+/g, '').toUpperCase();
+    if (!cleanStr) return null;
+    const [lng, lat] = mgrs.toPoint(cleanStr);
+    if (isNaN(lat) || isNaN(lng)) return null;
+    return {
+      lat: Math.round(lat * 1e7) / 1e7,
+      lng: Math.round(lng * 1e7) / 1e7,
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+export function mgrsToUTM(mgrsStr: string, forcedZone?: number | null): UTMCoordinate | null {
+  const coords = mgrsToLatLng(mgrsStr);
+  if (!coords) return null;
+  return latLngToUTM(coords.lat, coords.lng, forcedZone);
+}
+
+/**
+ * Calculates Azimuth Bearing in degrees (0 to 360) between two Lat/Lng coordinates
+ */
+export function calculateBearing(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const radLat1 = (lat1 * Math.PI) / 180;
+  const radLat2 = (lat2 * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+
+  const y = Math.sin(dLng) * Math.cos(radLat2);
+  const x =
+    Math.cos(radLat1) * Math.sin(radLat2) -
+    Math.sin(radLat1) * Math.cos(radLat2) * Math.cos(dLng);
+  let brng = (Math.atan2(y, x) * 180) / Math.PI;
+  return Math.round(((brng + 360) % 360) * 100) / 100;
+}
+
+/**
+ * Converts DMS (Degrees, Minutes, Seconds) to Decimal Degrees
+ */
+export function dmsToDecimal(
+  deg: number,
+  min: number,
+  sec: number,
+  dir: 'N' | 'S' | 'E' | 'W'
+): number {
+  let dec = Math.abs(deg) + min / 60 + sec / 3600;
+  if (dir === 'S' || dir === 'W') dec = -dec;
+  return Math.round(dec * 1e7) / 1e7;
+}
+
+/**
+ * Converts Decimal Degrees to DMS (Degrees, Minutes, Seconds)
+ */
+export function decimalToDMS(
+  dec: number,
+  isLat: boolean
+): { deg: number; min: number; sec: number; dir: 'N' | 'S' | 'E' | 'W' } {
+  const dir = isLat ? (dec >= 0 ? 'N' : 'S') : dec >= 0 ? 'E' : 'W';
+  const abs = Math.abs(dec);
+  const deg = Math.floor(abs);
+  const minFloat = (abs - deg) * 60;
+  const min = Math.floor(minFloat);
+  const sec = Math.round((minFloat - min) * 60 * 100) / 100;
+  return { deg, min, sec, dir };
+}
+
+/**
+ * Converts Geographic (Lat, Lng) coordinates to full MGRS grid string e.g. "38S MB 12345 67890"
+ */
+export function latLngToMGRS(lat: number, lng: number): string {
+  try {
+    const raw = mgrs.forward([lng, lat], 5); // 5 digits = 1 meter precision
+    const match = raw.match(/^(\d+)([A-Z])([A-Z]{2})(\d{5})(\d{5})$/);
+    if (match) {
+      const [_, zone, band, sq, east, north] = match;
+      return `${zone}${band} ${sq} ${east} ${north}`;
+    }
+    return raw;
+  } catch (err) {
+    return '';
+  }
 }
 
 /**
@@ -81,7 +171,7 @@ export function getLatitudeBand(lat: number): string {
  */
 export function formatUTMString(utm: UTMCoordinate, lang: 'ar' | 'en' = 'ar'): string {
   const { lat } = utmToLatLng(utm);
-  const band = getLatitudeBand(lat) || utm.hemisphere;
+  const band = getMGRSBandFromLat(lat);
   
   const eastFormatted = utm.easting.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const northFormatted = utm.northing.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -100,7 +190,7 @@ export function formatUTMString(utm: UTMCoordinate, lang: 'ar' | 'en' = 'ar'): s
  */
 export function formatUTMCompact(utm: UTMCoordinate): string {
   const { lat } = utmToLatLng(utm);
-  const band = getLatitudeBand(lat) || utm.hemisphere;
+  const band = getMGRSBandFromLat(lat);
   return `${utm.zone}${band} E:${utm.easting.toFixed(2)} N:${utm.northing.toFixed(2)}`;
 }
 

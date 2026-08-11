@@ -1,6 +1,6 @@
 {
   "name": "المساح",
-  "description": "أداة احترافية لجمع نقاط الرفع المساحي بنظام إحداثيات UTM والتصدير إلى Excel",
+  "description": "منصة احترافية متكاملة لجمع وتتبع نقاط الرفع المساحي بنظام إحداثيات UTM و MGRS، قياس المسافات والاتجاهات، جلب الارتفاعات والتصدير المتقدم لـ Excel و KML",
   "requestFramePermissions": ["geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

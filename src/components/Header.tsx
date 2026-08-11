@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
 import { useStore } from '../store/useStore';
 import { getTranslation } from '../utils/translations';
-import { exportPointsToExcel } from '../utils/excel';
 import {
   Compass,
   Plus,
   FileSpreadsheet,
   Upload,
-  Ruler,
   Globe2,
   Lock,
   Menu,
@@ -18,6 +16,10 @@ import {
   MoreVertical,
   SlidersHorizontal,
   X,
+  Download,
+  Save,
+  ChevronDown,
+  Settings,
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
@@ -37,23 +39,51 @@ export const Header: React.FC = () => {
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const setActiveModal = useStore((s) => s.setActiveModal);
   const showToast = useStore((s) => s.showToast);
+  const setExportFormat = useStore((s) => s.setExportFormat);
+  const setImportFile = useStore((s) => s.setImportFile);
+  const setQuickMapPopover = useStore((s) => s.setQuickMapPopover);
+  const setContextMenu = useStore((s) => s.setContextMenu);
 
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showMobileMoreMenu, setShowMobileMoreMenu] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showImportMenu, setShowImportMenu] = useState(false);
+
+  const headerRef = React.useRef<HTMLElement>(null);
+
+  // Close header menus when clicking outside
+  React.useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (headerRef.current && !headerRef.current.contains(e.target as Node)) {
+        setShowAddMenu(false);
+        setShowExportMenu(false);
+        setShowImportMenu(false);
+        setShowMobileMoreMenu(false);
+      }
+    };
+    document.addEventListener('pointerdown', handleOutsideClick);
+    return () => document.removeEventListener('pointerdown', handleOutsideClick);
+  }, []);
 
   const POPULAR_ZONES = [36, 37, 38, 39, 40, 35, 34, 33];
   const isAr = language === 'ar';
 
-  const handleExport = () => {
-    if (points.length === 0) {
-      showToast(isAr ? 'لا توجد نقاط مساحية للتصدير' : 'No points to export', 'warning');
+  const handleExportWithFormat = (format: 'excel' | 'geojson' | 'backup') => {
+    if (points.length === 0 && format !== 'backup') {
+      showToast(isAr ? 'لا توجد نقاط للتصدير' : 'No points to export', 'warning');
       return;
     }
-    setActiveModal('export_excel');
+    setExportFormat(format);
+    if (format === 'excel') {
+      setActiveModal('export_excel');
+    } else {
+      setActiveModal('export_preview');
+    }
+    setShowExportMenu(false);
   };
 
   return (
-    <header className="h-14 md:h-16 bg-slate-900/98 border-b border-slate-800/80 px-3 md:px-4 flex items-center justify-between relative z-40 shadow-xl backdrop-blur-md pt-safe select-none">
+    <header ref={headerRef} className="h-14 md:h-16 bg-slate-900/98 border-b border-slate-800/80 px-3 md:px-4 flex items-center justify-between relative z-40 shadow-xl backdrop-blur-md pt-safe select-none">
       {/* Right side (RTL): Brand Title & Logo */}
       <div className="flex items-center gap-2 md:gap-3 shrink-0">
         <button
@@ -86,123 +116,149 @@ export const Header: React.FC = () => {
 
       {/* Center & Actions: Interactive Mode Controls & Buttons */}
       <div className="flex items-center gap-1.5 md:gap-2">
-        {/* Add Point Dropdown */}
-        <div className="relative">
+        {/* Settings Modal Button */}
+        <button
+          onClick={() => setActiveModal('settings')}
+          className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 md:px-3 md:py-2 rounded-xl text-xs font-semibold shadow-md transition-all active:scale-95"
+          title={isAr ? 'الإعدادات' : 'Settings'}
+        >
+          <Settings className="w-4 h-4 text-purple-400 shrink-0" />
+          <span className="hidden md:inline">{isAr ? 'الإعدادات' : 'Settings'}</span>
+        </button>
+
+
+        {/* Hidden inputs for GeoJSON & Backup import */}
+        <input
+          type="file"
+          id="geojson-file-input"
+          accept=".geojson, .json"
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files && e.target.files[0]) {
+              setImportFile(e.target.files[0], 'geojson');
+              setActiveModal('import_options');
+            }
+          }}
+        />
+        <input
+          type="file"
+          id="backup-file-input"
+          accept=".json"
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files && e.target.files[0]) {
+              setImportFile(e.target.files[0], 'backup');
+              setActiveModal('import_options');
+            }
+          }}
+        />
+
+        {/* Desktop-only Export Dropdown */}
+        <div className="relative hidden sm:block">
           <button
             onClick={() => {
-              setShowAddMenu(!showAddMenu);
-              setShowMobileMoreMenu(false);
+              setShowExportMenu(!showExportMenu);
+              setShowImportMenu(false);
+              setShowAddMenu(false);
             }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 md:px-3.5 md:py-2 rounded-xl text-xs font-semibold shadow-md transition-all active:scale-95 ${
-              isContinuousAddMode
-                ? 'bg-emerald-400 text-slate-950 font-extrabold ring-2 ring-emerald-300/80 animate-pulse'
-                : isAddingPointMode
-                ? 'bg-emerald-500 text-slate-950 font-bold ring-2 ring-emerald-400/50'
-                : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-            }`}
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 px-3 py-2 rounded-xl text-xs font-semibold shadow-md transition-all hover:border-emerald-500/60"
+            title={getTranslation(language, 'exportProject')}
           >
-            {isContinuousAddMode ? <Sparkles className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-            <span className="hidden sm:inline">
-              {isContinuousAddMode
-                ? isAr ? 'إضافة متتالية ⚡' : 'Continuous Add ⚡'
-                : getTranslation(language, 'addPoint')}
-            </span>
-            <span className="sm:hidden font-bold">
-              {isContinuousAddMode ? '⚡' : isAr ? 'إضافة' : 'Add'}
-            </span>
+            <Download className="w-4 h-4" />
+            <span className="hidden xl:inline">{getTranslation(language, 'exportProject')}</span>
+            <ChevronDown className="w-3 h-3" />
           </button>
 
-          {showAddMenu && (
+          {showExportMenu && (
             <div
-              className={`absolute top-11 md:top-12 ${
+              className={`absolute top-11 ${
                 isAr ? 'right-0' : 'left-0'
-              } bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-2 w-60 z-[2000] backdrop-blur-xl space-y-1`}
+              } bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-2 w-56 z-[2000] backdrop-blur-xl space-y-1`}
             >
               <button
-                onClick={() => {
-                  setIsContinuousAddMode(!isContinuousAddMode);
-                  setShowAddMenu(false);
-                }}
-                className={`w-full text-right ${
-                  language === 'en' ? 'text-left' : ''
-                } px-3 py-2.5 rounded-xl text-xs font-medium transition-colors flex items-center gap-2.5 ${
-                  isContinuousAddMode
-                    ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40'
-                    : 'text-slate-200 hover:bg-slate-800'
-                }`}
+                onClick={() => handleExportWithFormat('excel')}
+                className="w-full text-right px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors flex items-center gap-2.5"
               >
-                <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>{isAr ? 'وضع الإضافة المتتالية السريعة ⚡' : 'Continuous Rapid Add Mode ⚡'}</span>
+                <FileSpreadsheet className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{isAr ? 'تصدير إكسل شامل (.xlsx)' : 'Export Full Excel (.xlsx)'}</span>
               </button>
 
               <button
-                onClick={() => {
-                  setIsAddingPointMode(true);
-                  setShowAddMenu(false);
-                }}
-                className={`w-full text-right ${
-                  language === 'en' ? 'text-left' : ''
-                } px-3 py-2.5 rounded-xl text-xs font-medium transition-colors flex items-center gap-2.5 ${
-                  isAddingPointMode && !isContinuousAddMode
-                    ? 'bg-emerald-500/20 text-emerald-300 font-bold'
-                    : 'text-slate-200 hover:bg-slate-800'
-                }`}
+                onClick={() => handleExportWithFormat('geojson')}
+                className="w-full text-right px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors flex items-center gap-2.5"
               >
-                <Crosshair className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>{getTranslation(language, 'addByClick')}</span>
+                <Globe2 className="w-4 h-4 text-sky-400 shrink-0" />
+                <span>{isAr ? 'تصدير GeoJSON (.geojson)' : 'Export GeoJSON (.geojson)'}</span>
               </button>
 
               <button
-                onClick={() => {
-                  setIsAddingPointMode(false);
-                  setIsContinuousAddMode(false);
-                  setActiveModal('add_point');
-                  setShowAddMenu(false);
-                }}
-                className="w-full text-right ${language === 'en' ? 'text-left' : ''} px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors flex items-center gap-2.5"
+                onClick={() => handleExportWithFormat('backup')}
+                className="w-full text-right px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors flex items-center gap-2.5"
               >
-                <MapPin className="w-4 h-4 text-sky-400 shrink-0" />
-                <span>{getTranslation(language, 'addManual')}</span>
+                <Save className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>{isAr ? 'تصدير نسخة احتياطية (.json)' : 'Export Project Backup (.json)'}</span>
               </button>
             </div>
           )}
         </div>
 
-        {/* Distance Measure Tool Button */}
-        <button
-          onClick={() => setIsMeasuringMode(!isMeasuringMode)}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 md:py-2 rounded-xl text-xs font-semibold shadow-md transition-all active:scale-95 ${
-            isMeasuringMode
-              ? 'bg-amber-500 text-slate-950 font-bold ring-2 ring-amber-400/50'
-              : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-          }`}
-          title={getTranslation(language, 'measureDistance')}
-        >
-          <Ruler className="w-4 h-4 text-amber-400 shrink-0" />
-          <span className="hidden lg:inline">{getTranslation(language, 'measureDistance')}</span>
-        </button>
+        {/* Desktop-only Import Dropdown */}
+        <div className="relative hidden sm:block">
+          <button
+            onClick={() => {
+              setShowImportMenu(!showImportMenu);
+              setShowExportMenu(false);
+              setShowAddMenu(false);
+            }}
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-sky-500/30 px-3 py-2 rounded-xl text-xs font-semibold shadow-md transition-all hover:border-sky-500/60"
+            title={getTranslation(language, 'importProject')}
+          >
+            <Upload className="w-4 h-4" />
+            <span className="hidden xl:inline">{getTranslation(language, 'importProject')}</span>
+            <ChevronDown className="w-3 h-3" />
+          </button>
 
-        {/* Desktop-only Direct Excel Buttons */}
-        <button
-          onClick={handleExport}
-          className="hidden sm:flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 px-3 py-2 rounded-xl text-xs font-semibold shadow-md transition-all hover:border-emerald-500/60"
-          title={getTranslation(language, 'exportExcel')}
-        >
-          <FileSpreadsheet className="w-4 h-4" />
-          <span className="hidden xl:inline">{getTranslation(language, 'exportExcel')}</span>
-          <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-mono px-1.5 py-0.2 rounded-md">
-            {points.length}
-          </span>
-        </button>
+          {showImportMenu && (
+            <div
+              className={`absolute top-11 ${
+                isAr ? 'right-0' : 'left-0'
+              } bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-2 w-56 z-[2000] backdrop-blur-xl space-y-1`}
+            >
+              <button
+                onClick={() => {
+                  setActiveModal('import_excel');
+                  setShowImportMenu(false);
+                }}
+                className="w-full text-right px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors flex items-center gap-2.5"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{isAr ? 'استيراد نقاط إكسل (.xlsx)' : 'Import Excel Points (.xlsx)'}</span>
+              </button>
 
-        <button
-          onClick={() => setActiveModal('import_excel')}
-          className="hidden sm:flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-sky-400 border border-sky-500/30 px-3 py-2 rounded-xl text-xs font-semibold shadow-md transition-all hover:border-sky-500/60"
-          title={getTranslation(language, 'importExcel')}
-        >
-          <Upload className="w-4 h-4" />
-          <span className="hidden xl:inline">{getTranslation(language, 'importExcel')}</span>
-        </button>
+              <button
+                onClick={() => {
+                  document.getElementById('geojson-file-input')?.click();
+                  setShowImportMenu(false);
+                }}
+                className="w-full text-right px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors flex items-center gap-2.5"
+              >
+                <Globe2 className="w-4 h-4 text-sky-400 shrink-0" />
+                <span>{isAr ? 'استيراد ملف GeoJSON (.geojson)' : 'Import GeoJSON (.geojson)'}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  document.getElementById('backup-file-input')?.click();
+                  setShowImportMenu(false);
+                }}
+                className="w-full text-right px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors flex items-center gap-2.5"
+              >
+                <Save className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>{isAr ? 'استعادة نسخة احتياطية (.json)' : 'Restore Project Backup (.json)'}</span>
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Desktop-only Zone Lock & Checklist & Lang */}
         <div className="hidden sm:flex items-center gap-1.5 bg-slate-950/80 border border-slate-800 px-2.5 py-1.5 rounded-xl text-xs font-mono">
@@ -252,11 +308,11 @@ export const Header: React.FC = () => {
             <div
               className={`absolute top-11 ${
                 isAr ? 'left-0' : 'right-0'
-              } bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-2.5 w-64 z-[2000] backdrop-blur-xl space-y-2 animate-in fade-in zoom-in-95 duration-150`}
+              } bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-2.5 w-64 z-[2000] backdrop-blur-xl space-y-2.5 animate-in fade-in zoom-in-95 duration-150`}
             >
               <div className="flex items-center justify-between border-b border-slate-800 pb-2 px-1">
                 <span className="text-xs font-bold text-slate-200">
-                  {isAr ? 'أدوات وإعدادات المساح' : 'Al-Mussah Tools'}
+                  {isAr ? 'الأدوات والإعدادات' : 'Tools & Settings'}
                 </span>
                 <button
                   onClick={() => setShowMobileMoreMenu(false)}
@@ -266,29 +322,86 @@ export const Header: React.FC = () => {
                 </button>
               </div>
 
-              {/* Excel Actions */}
-              <div className="grid grid-cols-2 gap-1.5">
-                <button
-                  onClick={() => {
-                    handleExport();
-                    setShowMobileMoreMenu(false);
-                  }}
-                  className="py-2 px-2.5 rounded-xl bg-slate-800 text-emerald-400 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 justify-center"
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>{isAr ? 'تصدير' : 'Export'}</span>
-                </button>
+              {/* Mobile Export Actions */}
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-500 uppercase block px-1">
+                  {isAr ? 'تصدير البيانات' : 'Export Data'}
+                </span>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    onClick={() => {
+                      handleExportWithFormat('excel');
+                      setShowMobileMoreMenu(false);
+                    }}
+                    className="py-2 px-1 rounded-xl bg-slate-800 text-emerald-400 border border-emerald-500/10 text-[10px] font-bold flex flex-col items-center gap-1 justify-center"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    <span>Excel</span>
+                  </button>
 
-                <button
-                  onClick={() => {
-                    setActiveModal('import_excel');
-                    setShowMobileMoreMenu(false);
-                  }}
-                  className="py-2 px-2.5 rounded-xl bg-slate-800 text-sky-400 border border-sky-500/30 text-xs font-semibold flex items-center gap-1.5 justify-center"
-                >
-                  <Upload className="w-4 h-4" />
-                  <span>{isAr ? 'استيراد' : 'Import'}</span>
-                </button>
+                  <button
+                    onClick={() => {
+                      handleExportWithFormat('geojson');
+                      setShowMobileMoreMenu(false);
+                    }}
+                    className="py-2 px-1 rounded-xl bg-slate-800 text-sky-400 border border-sky-500/10 text-[10px] font-bold flex flex-col items-center gap-1 justify-center"
+                  >
+                    <Globe2 className="w-4 h-4" />
+                    <span>GeoJSON</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      handleExportWithFormat('backup');
+                      setShowMobileMoreMenu(false);
+                    }}
+                    className="py-2 px-1 rounded-xl bg-slate-800 text-amber-400 border border-amber-500/10 text-[10px] font-bold flex flex-col items-center gap-1 justify-center"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>Backup</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Mobile Import Actions */}
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-slate-500 uppercase block px-1">
+                  {isAr ? 'استيراد البيانات' : 'Import Data'}
+                </span>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    onClick={() => {
+                      setActiveModal('import_excel');
+                      setShowMobileMoreMenu(false);
+                    }}
+                    className="py-2 px-1 rounded-xl bg-slate-800 text-emerald-400 border border-emerald-500/10 text-[10px] font-bold flex flex-col items-center gap-1 justify-center"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    <span>Excel</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      document.getElementById('geojson-file-input')?.click();
+                      setShowMobileMoreMenu(false);
+                    }}
+                    className="py-2 px-1 rounded-xl bg-slate-800 text-sky-400 border border-sky-500/10 text-[10px] font-bold flex flex-col items-center gap-1 justify-center"
+                  >
+                    <Globe2 className="w-4 h-4" />
+                    <span>GeoJSON</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      document.getElementById('backup-file-input')?.click();
+                      setShowMobileMoreMenu(false);
+                    }}
+                    className="py-2 px-1 rounded-xl bg-slate-800 text-amber-400 border border-amber-500/10 text-[10px] font-bold flex flex-col items-center gap-1 justify-center"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>Backup</span>
+                  </button>
+                </div>
               </div>
 
               {/* Zone Override */}

@@ -5,12 +5,21 @@ import { MapContainer } from './components/MapContainer';
 import { PointModal } from './components/PointModal';
 import { ExcelImportModal } from './components/ExcelImportModal';
 import { ExportExcelModal } from './components/ExportExcelModal';
+import { ExportPreviewModal } from './components/ExportPreviewModal';
+import { ImportOptionsModal } from './components/ImportOptionsModal';
+import { ImportResultModal } from './components/ImportResultModal';
+import { SettingsModal } from './components/SettingsModal';
+import { CoordinateConverterModal } from './components/CoordinateConverterModal';
+import { PointToPointMeasureModal } from './components/PointToPointMeasureModal';
+import { OnMapMeasureHUD } from './components/OnMapMeasureHUD';
 import { DistanceMeasurePanel } from './components/DistanceMeasurePanel';
 import { ToastContainer } from './components/ToastContainer';
 import { MoveToast } from './components/MoveToast';
 import { QuickMapPopover } from './components/QuickMapPopover';
 import { ContextMenu } from './components/ContextMenu';
 import { MobileBottomSheet } from './components/MobileBottomSheet';
+
+import { AnnotationEditors } from './components/AnnotationEditors';
 
 export default function App() {
   return (
@@ -23,6 +32,8 @@ export default function App() {
         {/* Main Map Canvas Stage */}
         <main className="flex-1 h-full relative z-0 overflow-hidden">
           <MapContainer />
+          <OnMapMeasureHUD />
+          <AnnotationEditors />
           <DistanceMeasurePanel />
         </main>
 
@@ -43,6 +54,12 @@ export default function App() {
       <PointModal />
       <ExcelImportModal />
       <ExportExcelModal />
+      <ExportPreviewModal />
+      <ImportOptionsModal />
+      <ImportResultModal />
+      <SettingsModal />
+      <CoordinateConverterModal />
+      <PointToPointMeasureModal />
     </div>
   );
 }

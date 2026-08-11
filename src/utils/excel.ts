@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
-import { SurveyPoint, Language, PointCategory, Hemisphere, ExportSettings, ExportColumnKey } from '../types';
-import { utmToLatLng, latLngToUTM, getUTMZoneFromLng, getHemisphereFromLat } from './utm';
+import { SurveyPoint, Language, PointCategory, Hemisphere, ExportSettings, ExportColumnKey, Annotation, AnnotationLine, AnnotationText } from '../types';
+import { utmToLatLng, latLngToUTM, getUTMZoneFromLng, getHemisphereFromLat, getMGRSBandFromLat, latLngToMGRS } from './utm';
 
 /**
  * Category translation helper
@@ -8,7 +8,7 @@ import { utmToLatLng, latLngToUTM, getUTMZoneFromLng, getHemisphereFromLat } fro
 export function getCategoryLabel(category?: PointCategory, lang: Language = 'ar'): string {
   if (!category) return lang === 'ar' ? 'عام' : 'General';
   
-  const labels: Record<PointCategory, { ar: string; en: string }> = {
+  const labels: Record<string, { ar: string; en: string }> = {
     control_point: { ar: 'نقطة ضبط أرضي (GCP)', en: 'Ground Control Point' },
     boundary: { ar: 'نقطة حدود', en: 'Boundary Marker' },
     elevation: { ar: 'نقطة منسوب', en: 'Elevation Point' },
@@ -17,21 +17,15 @@ export function getCategoryLabel(category?: PointCategory, lang: Language = 'ar'
     other: { ar: 'أخرى', en: 'Other' },
   };
 
-  return labels[category]?.[lang] || (lang === 'ar' ? 'عام' : 'General');
+  return labels[category]?.[lang] || category;
 }
 
 /**
- * Parses label back to PointCategory enum
+ * Parses label back to PointCategory string
  */
 export function parseCategoryLabel(labelStr?: string): PointCategory {
-  if (!labelStr) return 'other';
-  const str = labelStr.toLowerCase();
-  if (str.includes('ضبط') || str.includes('gcp') || str.includes('control')) return 'control_point';
-  if (str.includes('حدود') || str.includes('bound')) return 'boundary';
-  if (str.includes('منسوب') || str.includes('ارتفاع') || str.includes('elev')) return 'elevation';
-  if (str.includes('تحتية') || str.includes('infrastr')) return 'infrastructure';
-  if (str.includes('معلم') || str.includes('feat')) return 'feature';
-  return 'other';
+  if (!labelStr) return '';
+  return labelStr.trim();
 }
 
 export function generateExportData(points: SurveyPoint[], lang: Language, settings: ExportSettings) {
@@ -50,6 +44,7 @@ export function generateExportData(points: SurveyPoint[], lang: Language, settin
       elevation: isAr ? 'الارتفاع (متر)' : 'Elevation Z (m)',
       latitude: isAr ? 'خط العرض (Latitude)' : 'Latitude',
       longitude: isAr ? 'خط الطول (Longitude)' : 'Longitude',
+      mgrs: isAr ? 'إحداثيات MGRS العسكرية' : 'MGRS Coordinates',
       timestamp: isAr ? 'تاريخ التسجيل' : 'Timestamp',
     };
     return colNames[key];
@@ -64,14 +59,19 @@ export function generateExportData(points: SurveyPoint[], lang: Language, settin
         case 'name': row[colName] = p.name; break;
         case 'description': row[colName] = p.description || ''; break;
         case 'category': row[colName] = getCategoryLabel(p.category, lang); break;
-        case 'zone': row[colName] = p.utm.zone; break;
+        case 'zone': {
+          const band = getMGRSBandFromLat(p.lat);
+          row[colName] = `${p.utm.zone}${band}`;
+          break;
+        }
         case 'hemisphere': row[colName] = p.utm.hemisphere === 'N' ? (isAr ? 'شمال (N)' : 'N') : (isAr ? 'جنوب (S)' : 'S'); break;
         case 'easting': row[colName] = p.utm.easting; break;
         case 'northing': row[colName] = p.utm.northing; break;
         case 'elevation': row[colName] = p.elevation !== undefined ? p.elevation : '-'; break;
         case 'latitude': row[colName] = p.lat; break;
         case 'longitude': row[colName] = p.lng; break;
-        case 'timestamp': row[colName] = new Date(p.timestamp).toLocaleString(isAr ? 'ar-SA' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' }); break;
+        case 'mgrs': row[colName] = latLngToMGRS(p.lat, p.lng); break;
+        case 'timestamp': row[colName] = new Date(p.timestamp).toLocaleString(isAr ? 'ar-SA-u-nu-latn' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' }); break;
       }
     });
     return row;
@@ -141,7 +141,7 @@ export function exportPointsToExcel(points: SurveyPoint[], lang: Language = 'ar'
   }
 
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, isAr ? 'نقاط المساحة UTM' : 'UTM Survey Points');
+  XLSX.utils.book_append_sheet(workbook, worksheet, isAr ? 'نقاط UTM' : 'UTM Survey Points');
 
   // Format date for filename
   const now = new Date();
@@ -264,3 +264,286 @@ export async function parseExcelToPoints(file: File): Promise<SurveyPoint[]> {
     reader.readAsArrayBuffer(file);
   });
 }
+
+/**
+ * Helper to calculate line length for annotation lines
+ */
+function getLineLength(pts: { lat: number; lng: number }[]): number {
+  let total = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const phi1 = (pts[i].lat * Math.PI) / 180;
+    const phi2 = (pts[i + 1].lat * Math.PI) / 180;
+    const deltaPhi = ((pts[i + 1].lat - pts[i].lat) * Math.PI) / 180;
+    const deltaLambda = ((pts[i + 1].lng - pts[i].lng) * Math.PI) / 180;
+    const a =
+      Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+      Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    total += 6371000 * c;
+  }
+  return Math.round(total * 100) / 100;
+}
+
+/**
+ * Exports full project data (Points + Lines + Labels + Summary) to a styled Excel workbook with 4 sheets
+ */
+export function exportFullProjectToExcel(points: SurveyPoint[], annotations: Annotation[], lang: Language = 'ar'): void {
+  const isAr = lang === 'ar';
+  const workbook = XLSX.utils.book_new();
+
+  // ----------------------------------------------------
+  // Sheet 1: Survey Points
+  // ----------------------------------------------------
+  const pointsHeaders = isAr
+    ? {
+        id: 'معرف النقطة (ID)',
+        name: 'اسم النقطة',
+        description: 'الوصف',
+        category: 'التصنيف',
+        zone: 'منطقة UTM',
+        hemisphere: 'نصف الكرة',
+        easting: 'الإحداثي الشرقي (X)',
+        northing: 'الإحداثي الشمالي (Y)',
+        elevation: 'الارتفاع (Z)',
+        latitude: 'خط العرض',
+        longitude: 'خط الطول',
+        mgrs: 'إحداثيات MGRS العسكرية',
+        locked: 'مقفلة؟',
+        color: 'اللون',
+        timestamp: 'التاريخ',
+      }
+    : {
+        id: 'ID',
+        name: 'Name',
+        description: 'Description',
+        category: 'Category',
+        zone: 'Zone',
+        hemisphere: 'Hemisphere',
+        easting: 'Easting (X)',
+        northing: 'Northing (Y)',
+        elevation: 'Elevation (Z)',
+        latitude: 'Latitude',
+        longitude: 'Longitude',
+        mgrs: 'MGRS Coordinates',
+        locked: 'Locked',
+        color: 'Color',
+        timestamp: 'Timestamp',
+      };
+
+  const pointsRows = points.map((p) => ({
+    [pointsHeaders.id]: p.id,
+    [pointsHeaders.name]: p.name,
+    [pointsHeaders.description]: p.description || '',
+    [pointsHeaders.category]: getCategoryLabel(p.category, lang),
+    [pointsHeaders.zone]: `${p.utm.zone}${getMGRSBandFromLat(p.lat)}`,
+    [pointsHeaders.hemisphere]: p.utm.hemisphere === 'N' ? (isAr ? 'شمال (N)' : 'N') : (isAr ? 'جنوب (S)' : 'S'),
+    [pointsHeaders.easting]: p.utm.easting,
+    [pointsHeaders.northing]: p.utm.northing,
+    [pointsHeaders.elevation]: p.elevation !== undefined ? p.elevation : '',
+    [pointsHeaders.latitude]: p.lat,
+    [pointsHeaders.longitude]: p.lng,
+    [pointsHeaders.mgrs]: latLngToMGRS(p.lat, p.lng),
+    [pointsHeaders.locked]: p.isLocked ? (isAr ? 'نعم' : 'Yes') : (isAr ? 'لا' : 'No'),
+    [pointsHeaders.color]: p.color || '#10b981',
+    [pointsHeaders.timestamp]: p.timestamp,
+  }));
+
+  const pointsSheet = XLSX.utils.json_to_sheet(pointsRows);
+  pointsSheet['!cols'] = [
+    { wch: 18 }, // id
+    { wch: 20 }, // name
+    { wch: 25 }, // description
+    { wch: 22 }, // category
+    { wch: 12 }, // zone
+    { wch: 12 }, // hemisphere
+    { wch: 18 }, // easting
+    { wch: 18 }, // northing
+    { wch: 14 }, // elevation
+    { wch: 16 }, // lat
+    { wch: 16 }, // lng
+    { wch: 22 }, // mgrs
+    { wch: 10 }, // locked
+    { wch: 10 }, // color
+    { wch: 24 }, // timestamp
+  ];
+  XLSX.utils.book_append_sheet(workbook, pointsSheet, isAr ? 'النقاط' : 'Survey Points');
+
+  // ----------------------------------------------------
+  // Sheet 2: Annotation Lines
+  // ----------------------------------------------------
+  const linesHeaders = isAr
+    ? {
+        id: 'معرف الخط',
+        name: 'اسم الخط',
+        color: 'اللون',
+        weight: 'السماكة',
+        style: 'النمط',
+        dashArray: 'نمط التقطيع',
+        pointsCount: 'عدد العقد',
+        totalLength: 'الطول الإجمالي (متر)',
+        pointsUtm: 'نقاط (UTM)',
+        pointsWgs: 'نقاط (WGS84)',
+        createdAt: 'تاريخ الإنشاء',
+      }
+    : {
+        id: 'ID',
+        name: 'Name',
+        color: 'Color',
+        weight: 'Weight',
+        style: 'Style',
+        dashArray: 'Dash Array',
+        pointsCount: 'Points Count',
+        totalLength: 'Total Length (m)',
+        pointsUtm: 'Points (UTM)',
+        pointsWgs: 'Points (WGS84)',
+        createdAt: 'Created At',
+      };
+
+  const lineAnnotations = annotations.filter((a) => a.type === 'line') as AnnotationLine[];
+  const linesRows = lineAnnotations.map((line) => {
+    const totalLen = getLineLength(line.points);
+    const utmCoordsStr = line.points.map((pt) => `${pt.utm.easting},${pt.utm.northing}`).join(' | ');
+    const wgsCoordsStr = line.points.map((pt) => `${pt.lat},${pt.lng}`).join(' | ');
+
+    return {
+      [linesHeaders.id]: line.id,
+      [linesHeaders.name]: line.name,
+      [linesHeaders.color]: line.color || '#ef4444',
+      [linesHeaders.weight]: line.weight || 3,
+      [linesHeaders.style]: line.dashArray ? (isAr ? 'متقطع' : 'Dashed') : (isAr ? 'متصل' : 'Solid'),
+      [linesHeaders.dashArray]: line.dashArray || '',
+      [linesHeaders.pointsCount]: line.points.length,
+      [linesHeaders.totalLength]: totalLen,
+      [linesHeaders.pointsUtm]: utmCoordsStr,
+      [linesHeaders.pointsWgs]: wgsCoordsStr,
+      [linesHeaders.createdAt]: line.createdAt,
+    };
+  });
+
+  const linesSheet = XLSX.utils.json_to_sheet(linesRows);
+  linesSheet['!cols'] = [
+    { wch: 18 }, // id
+    { wch: 20 }, // name
+    { wch: 10 }, // color
+    { wch: 10 }, // weight
+    { wch: 12 }, // style
+    { wch: 14 }, // dashArray
+    { wch: 14 }, // pointsCount
+    { wch: 18 }, // totalLength
+    { wch: 40 }, // pointsUtm
+    { wch: 40 }, // pointsWgs
+    { wch: 24 }, // createdAt
+  ];
+  XLSX.utils.book_append_sheet(workbook, linesSheet, isAr ? 'الخطوط التوضيحية' : 'Annotation Lines');
+
+  // ----------------------------------------------------
+  // Sheet 3: Text Labels
+  // ----------------------------------------------------
+  const labelsHeaders = isAr
+    ? {
+        id: 'معرف النص',
+        content: 'محتوى النص',
+        zone: 'منطقة UTM',
+        easting: 'الإحداثي الشرقي',
+        northing: 'الإحداثي الشمالي',
+        latitude: 'خط العرض',
+        longitude: 'خط الطول',
+        fontSize: 'حجم الخط',
+        color: 'اللون',
+        background: 'لون الخلفية',
+        rotation: 'التدوير (درجات)',
+        createdAt: 'تاريخ الإنشاء',
+      }
+    : {
+        id: 'ID',
+        content: 'Content',
+        zone: 'Zone',
+        easting: 'Easting',
+        northing: 'Northing',
+        latitude: 'Latitude',
+        longitude: 'Longitude',
+        fontSize: 'Font Size',
+        color: 'Color',
+        background: 'Background',
+        rotation: 'Rotation',
+        createdAt: 'Created At',
+      };
+
+  const textAnnotations = annotations.filter((a) => a.type === 'text') as AnnotationText[];
+  const labelsRows = textAnnotations.map((text) => ({
+    [labelsHeaders.id]: text.id,
+    [labelsHeaders.content]: text.content,
+    [labelsHeaders.zone]: text.utm.zone,
+    [labelsHeaders.easting]: text.utm.easting,
+    [labelsHeaders.northing]: text.utm.northing,
+    [labelsHeaders.latitude]: text.lat,
+    [labelsHeaders.longitude]: text.lng,
+    [labelsHeaders.fontSize]: text.fontSize || 16,
+    [labelsHeaders.color]: text.color || '#ffffff',
+    [labelsHeaders.background]: text.backgroundColor || 'transparent',
+    [labelsHeaders.rotation]: text.rotation || 0,
+    [labelsHeaders.createdAt]: text.createdAt,
+  }));
+
+  const labelsSheet = XLSX.utils.json_to_sheet(labelsRows);
+  labelsSheet['!cols'] = [
+    { wch: 18 }, // id
+    { wch: 25 }, // content
+    { wch: 12 }, // zone
+    { wch: 18 }, // easting
+    { wch: 18 }, // northing
+    { wch: 16 }, // lat
+    { wch: 16 }, // lng
+    { wch: 12 }, // fontSize
+    { wch: 10 }, // color
+    { wch: 16 }, // background
+    { wch: 12 }, // rotation
+    { wch: 24 }, // createdAt
+  ];
+  XLSX.utils.book_append_sheet(workbook, labelsSheet, isAr ? 'النصوص التوضيحية' : 'Text Labels');
+
+  // ----------------------------------------------------
+  // Sheet 4: Project Summary
+  // ----------------------------------------------------
+  const summaryHeaders = isAr
+    ? {
+        field: 'الحقل / العنصر',
+        value: 'القيمة',
+      }
+    : {
+        field: 'Field',
+        value: 'Value',
+      };
+
+  const uniqueZones = Array.from(new Set(points.map((p) => `${p.utm.zone}${p.utm.hemisphere}`)));
+
+  const summaryRows = [
+    { [summaryHeaders.field]: isAr ? 'اسم التطبيق' : 'App Name', [summaryHeaders.value]: 'المساح (Almussah)' },
+    { [summaryHeaders.field]: isAr ? 'تاريخ التصدير' : 'Export Date', [summaryHeaders.value]: new Date().toLocaleString(isAr ? 'ar-SA-u-nu-latn' : 'en-US') },
+    { [summaryHeaders.field]: isAr ? 'إجمالي النقاط' : 'Total Points', [summaryHeaders.value]: points.length },
+    { [summaryHeaders.field]: isAr ? 'إجمالي الخطوط التوضيحية' : 'Total Lines', [summaryHeaders.value]: lineAnnotations.length },
+    { [summaryHeaders.field]: isAr ? 'إجمالي النصوص التوضيحية' : 'Total Labels', [summaryHeaders.value]: textAnnotations.length },
+    { [summaryHeaders.field]: isAr ? 'مناطق UTM المستخدمة' : 'UTM Zones Used', [summaryHeaders.value]: uniqueZones.join(', ') || '-' },
+    { [summaryHeaders.field]: isAr ? 'لغة التطبيق' : 'Language', [summaryHeaders.value]: lang === 'ar' ? 'العربية' : 'English' },
+    { [summaryHeaders.field]: isAr ? 'إصدار الملف' : 'Version', [summaryHeaders.value]: '1.0' },
+  ];
+
+  const summarySheet = XLSX.utils.json_to_sheet(summaryRows);
+  summarySheet['!cols'] = [
+    { wch: 30 }, // field
+    { wch: 35 }, // value
+  ];
+  XLSX.utils.book_append_sheet(workbook, summarySheet, isAr ? 'ملخص المشروع' : 'Project Summary');
+
+  // Generate Filename
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const mins = String(now.getMinutes()).padStart(2, '0');
+  const fileName = `Almussah_Project_${year}-${month}-${day}_${hours}-${mins}.xlsx`;
+
+  XLSX.writeFile(workbook, fileName);
+}
+
