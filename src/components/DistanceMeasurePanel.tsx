@@ -2,7 +2,7 @@ import React from 'react';
 import { useStore } from '../store/useStore';
 import { getTranslation } from '../utils/translations';
 import { calculateHaversineDistance } from '../utils/utm';
-import { Ruler, Trash2, CheckCircle2, X } from 'lucide-react';
+import { Ruler, Trash2, CheckCircle2, X, Route } from 'lucide-react';
 
 export const DistanceMeasurePanel: React.FC = () => {
   const isMeasuringMode = useStore((s) => s.isMeasuringMode);
@@ -11,6 +11,9 @@ export const DistanceMeasurePanel: React.FC = () => {
 
   const setIsMeasuringMode = useStore((s) => s.setIsMeasuringMode);
   const clearMeasurePoints = useStore((s) => s.clearMeasurePoints);
+  const setActiveModal = useStore((s) => s.setActiveModal);
+
+  const isAr = language === 'ar';
 
   if (!isMeasuringMode) return null;
 
@@ -56,8 +59,17 @@ export const DistanceMeasurePanel: React.FC = () => {
           </span>
         </div>
 
-        <div className="text-[11px] text-slate-400 px-1">
-          عدد نقاط المسار المقاسة: <span className="text-slate-200 font-bold font-mono">{measurePoints.length}</span>
+        <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+          <span>عدد نقاط المسار المقاسة: <span className="text-slate-200 font-bold font-mono">{measurePoints.length}</span></span>
+          {measurePoints.length >= 2 && (
+            <button
+              onClick={() => setActiveModal('line_stationing')}
+              className="text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 hover:underline"
+            >
+              <Route className="w-3.5 h-3.5" />
+              <span>{isAr ? 'تثبيت نقاط المسار' : 'Stationing Points'}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -71,12 +83,22 @@ export const DistanceMeasurePanel: React.FC = () => {
           <span>{getTranslation(language, 'resetMeasure')}</span>
         </button>
 
+        {measurePoints.length >= 2 && (
+          <button
+            onClick={() => setActiveModal('line_stationing')}
+            className="flex-1 py-1.5 px-3 rounded-xl bg-amber-500/20 border border-amber-500/50 hover:bg-amber-500/30 text-amber-300 text-xs font-bold flex items-center justify-center gap-1.5 transition-all"
+          >
+            <Route className="w-3.5 h-3.5" />
+            <span>{isAr ? 'تثبيت نقاط الطريق' : 'Stationing'}</span>
+          </button>
+        )}
+
         <button
           onClick={() => setIsMeasuringMode(false)}
-          className="flex-1 py-1.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold flex items-center justify-center gap-1.5 shadow-md transition-all"
+          className="py-1.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center justify-center gap-1.5 transition-all"
         >
-          <CheckCircle2 className="w-3.5 h-3.5" />
-          <span>إغلاق الأدوات</span>
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+          <span>إغلاق</span>
         </button>
       </div>
     </div>

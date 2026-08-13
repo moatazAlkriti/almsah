@@ -28,11 +28,47 @@ export function parseCategoryLabel(labelStr?: string): PointCategory {
   return labelStr.trim();
 }
 
+/**
+ * Helper to sort points by chosen order (Default: Chronological Ascending - Oldest / First Created first)
+ */
+export function sortPointsList(points: SurveyPoint[], sortBy: ExportSettings['sortBy'] = 'chronological_asc'): SurveyPoint[] {
+  const sorted = [...points];
+  switch (sortBy) {
+    case 'chronological_asc':
+      return sorted.sort((a, b) => {
+        const timeA = new Date(a.timestamp).getTime();
+        const timeB = new Date(b.timestamp).getTime();
+        if (timeA !== timeB) return timeA - timeB;
+        return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+      });
+    case 'chronological_desc':
+      return sorted.sort((a, b) => {
+        const timeA = new Date(a.timestamp).getTime();
+        const timeB = new Date(b.timestamp).getTime();
+        if (timeA !== timeB) return timeB - timeA;
+        return b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: 'base' });
+      });
+    case 'name_numeric':
+      return sorted.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    case 'name_alpha':
+      return sorted.sort((a, b) => a.name.localeCompare(b.name));
+    default:
+      return sorted.sort((a, b) => {
+        const timeA = new Date(a.timestamp).getTime();
+        const timeB = new Date(b.timestamp).getTime();
+        if (timeA !== timeB) return timeA - timeB;
+        return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+      });
+  }
+}
+
 export function generateExportData(points: SurveyPoint[], lang: Language, settings: ExportSettings) {
   const isAr = lang === 'ar';
+  const sortedPoints = sortPointsList(points, settings.sortBy || 'chronological_asc');
   
   const getColName = (key: ExportColumnKey) => {
     const colNames = {
+      seq: isAr ? 'ت' : 'Seq',
       id: isAr ? 'معرف النقطة (ID)' : 'Point ID',
       name: isAr ? 'اسم النقطة' : 'Point Name',
       description: isAr ? 'الوصف والبيانات' : 'Description',
@@ -41,7 +77,7 @@ export function generateExportData(points: SurveyPoint[], lang: Language, settin
       hemisphere: isAr ? 'نصف الكرة (Hemisphere)' : 'Hemisphere',
       easting: isAr ? 'الإحداثي الشرقي Easting (m)' : 'Easting X (m)',
       northing: isAr ? 'الإحداثي الشمالي Northing (m)' : 'Northing Y (m)',
-      elevation: isAr ? 'الارتفاع (متر)' : 'Elevation Z (m)',
+      elevation: isAr ? 'الارتفاع Elevation (m)' : 'Elevation Z (m)',
       latitude: isAr ? 'خط العرض (Latitude)' : 'Latitude',
       longitude: isAr ? 'خط الطول (Longitude)' : 'Longitude',
       mgrs: isAr ? 'إحداثيات MGRS العسكرية' : 'MGRS Coordinates',
@@ -50,11 +86,12 @@ export function generateExportData(points: SurveyPoint[], lang: Language, settin
     return colNames[key];
   };
 
-  const dataRows = points.map((p) => {
+  const dataRows = sortedPoints.map((p, index) => {
     const row: Record<string, any> = {};
     settings.selectedColumns.forEach((col) => {
       const colName = getColName(col);
       switch (col) {
+        case 'seq': row[colName] = index + 1; break;
         case 'id': row[colName] = p.id; break;
         case 'name': row[colName] = p.name; break;
         case 'description': row[colName] = p.description || ''; break;
@@ -67,7 +104,7 @@ export function generateExportData(points: SurveyPoint[], lang: Language, settin
         case 'hemisphere': row[colName] = p.utm.hemisphere === 'N' ? (isAr ? 'شمال (N)' : 'N') : (isAr ? 'جنوب (S)' : 'S'); break;
         case 'easting': row[colName] = p.utm.easting; break;
         case 'northing': row[colName] = p.utm.northing; break;
-        case 'elevation': row[colName] = p.elevation !== undefined ? p.elevation : '-'; break;
+        case 'elevation': row[colName] = p.elevation !== undefined ? p.elevation : ''; break;
         case 'latitude': row[colName] = p.lat; break;
         case 'longitude': row[colName] = p.lng; break;
         case 'mgrs': row[colName] = latLngToMGRS(p.lat, p.lng); break;
@@ -81,9 +118,9 @@ export function generateExportData(points: SurveyPoint[], lang: Language, settin
     // Transpose data
     const transposed: Record<string, any>[] = [];
     settings.selectedColumns.forEach((col) => {
-      const row: Record<string, any> = { 'Field / Point': getColName(col) };
-      points.forEach((p, idx) => {
-        row[`Point ${idx + 1}`] = dataRows[idx][getColName(col)];
+      const row: Record<string, any> = { [isAr ? 'الحقل / النقطة' : 'Field / Point']: getColName(col) };
+      sortedPoints.forEach((p, idx) => {
+        row[`${isAr ? 'نقطة' : 'Point'} ${idx + 1}`] = dataRows[idx][getColName(col)];
       });
       transposed.push(row);
     });
@@ -104,7 +141,7 @@ export function exportPointsToExcel(points: SurveyPoint[], lang: Language = 'ar'
 
   const isAr = lang === 'ar';
   const defaultSettings: ExportSettings = {
-    selectedColumns: ['id', 'name', 'description', 'category', 'zone', 'hemisphere', 'easting', 'northing', 'elevation', 'timestamp'],
+    selectedColumns: ['seq', 'name', 'zone', 'easting', 'northing', 'elevation', 'mgrs', 'latitude', 'longitude', 'category', 'description', 'timestamp'],
     orientation: 'horizontal'
   };
   
@@ -114,23 +151,30 @@ export function exportPointsToExcel(points: SurveyPoint[], lang: Language = 'ar'
   // Create sheet & workbook
   const worksheet = XLSX.utils.json_to_sheet(dataRows);
 
+  // Enable Right-to-Left (RTL) view for Arabic
+  if (isAr) {
+    worksheet['!views'] = [{ RTL: true }];
+  }
+
   // Set standard column widths if horizontal
   if (activeSettings.orientation === 'horizontal') {
     const colWidths = activeSettings.selectedColumns.map(col => {
       switch(col) {
+        case 'seq': return { wch: 8 };
         case 'id': return { wch: 16 };
-        case 'name': return { wch: 20 };
+        case 'name': return { wch: 22 };
         case 'description': return { wch: 30 };
         case 'category': return { wch: 22 };
-        case 'zone': return { wch: 18 };
-        case 'hemisphere': return { wch: 22 };
-        case 'easting': return { wch: 26 };
-        case 'northing': return { wch: 26 };
+        case 'zone': return { wch: 16 };
+        case 'hemisphere': return { wch: 18 };
+        case 'easting': return { wch: 22 };
+        case 'northing': return { wch: 22 };
         case 'elevation': return { wch: 16 };
-        case 'latitude': return { wch: 20 };
-        case 'longitude': return { wch: 20 };
+        case 'latitude': return { wch: 18 };
+        case 'longitude': return { wch: 18 };
+        case 'mgrs': return { wch: 22 };
         case 'timestamp': return { wch: 24 };
-        default: return { wch: 20 };
+        default: return { wch: 18 };
       }
     });
     worksheet['!cols'] = colWidths;
@@ -291,80 +335,83 @@ export function exportFullProjectToExcel(points: SurveyPoint[], annotations: Ann
   const isAr = lang === 'ar';
   const workbook = XLSX.utils.book_new();
 
+  const sortedPoints = sortPointsList(points, 'chronological_asc');
+
   // ----------------------------------------------------
   // Sheet 1: Survey Points
   // ----------------------------------------------------
   const pointsHeaders = isAr
     ? {
-        id: 'معرف النقطة (ID)',
+        seq: 'ت',
         name: 'اسم النقطة',
-        description: 'الوصف',
-        category: 'التصنيف',
         zone: 'منطقة UTM',
-        hemisphere: 'نصف الكرة',
         easting: 'الإحداثي الشرقي (X)',
         northing: 'الإحداثي الشمالي (Y)',
         elevation: 'الارتفاع (Z)',
+        mgrs: 'إحداثيات MGRS',
         latitude: 'خط العرض',
         longitude: 'خط الطول',
-        mgrs: 'إحداثيات MGRS العسكرية',
+        category: 'التصنيف',
+        description: 'الوصف',
         locked: 'مقفلة؟',
         color: 'اللون',
         timestamp: 'التاريخ',
+        id: 'معرف النقطة (ID)',
       }
     : {
-        id: 'ID',
+        seq: 'Seq',
         name: 'Name',
-        description: 'Description',
-        category: 'Category',
         zone: 'Zone',
-        hemisphere: 'Hemisphere',
         easting: 'Easting (X)',
         northing: 'Northing (Y)',
         elevation: 'Elevation (Z)',
+        mgrs: 'MGRS Coordinates',
         latitude: 'Latitude',
         longitude: 'Longitude',
-        mgrs: 'MGRS Coordinates',
+        category: 'Category',
+        description: 'Description',
         locked: 'Locked',
         color: 'Color',
         timestamp: 'Timestamp',
+        id: 'Point ID',
       };
 
-  const pointsRows = points.map((p) => ({
-    [pointsHeaders.id]: p.id,
+  const pointsRows = sortedPoints.map((p, index) => ({
+    [pointsHeaders.seq]: index + 1,
     [pointsHeaders.name]: p.name,
-    [pointsHeaders.description]: p.description || '',
-    [pointsHeaders.category]: getCategoryLabel(p.category, lang),
     [pointsHeaders.zone]: `${p.utm.zone}${getMGRSBandFromLat(p.lat)}`,
-    [pointsHeaders.hemisphere]: p.utm.hemisphere === 'N' ? (isAr ? 'شمال (N)' : 'N') : (isAr ? 'جنوب (S)' : 'S'),
     [pointsHeaders.easting]: p.utm.easting,
     [pointsHeaders.northing]: p.utm.northing,
     [pointsHeaders.elevation]: p.elevation !== undefined ? p.elevation : '',
+    [pointsHeaders.mgrs]: latLngToMGRS(p.lat, p.lng),
     [pointsHeaders.latitude]: p.lat,
     [pointsHeaders.longitude]: p.lng,
-    [pointsHeaders.mgrs]: latLngToMGRS(p.lat, p.lng),
+    [pointsHeaders.category]: getCategoryLabel(p.category, lang),
+    [pointsHeaders.description]: p.description || '',
     [pointsHeaders.locked]: p.isLocked ? (isAr ? 'نعم' : 'Yes') : (isAr ? 'لا' : 'No'),
     [pointsHeaders.color]: p.color || '#10b981',
     [pointsHeaders.timestamp]: p.timestamp,
+    [pointsHeaders.id]: p.id,
   }));
 
   const pointsSheet = XLSX.utils.json_to_sheet(pointsRows);
+  if (isAr) pointsSheet['!views'] = [{ RTL: true }];
   pointsSheet['!cols'] = [
-    { wch: 18 }, // id
-    { wch: 20 }, // name
-    { wch: 25 }, // description
-    { wch: 22 }, // category
-    { wch: 12 }, // zone
-    { wch: 12 }, // hemisphere
-    { wch: 18 }, // easting
-    { wch: 18 }, // northing
-    { wch: 14 }, // elevation
-    { wch: 16 }, // lat
-    { wch: 16 }, // lng
+    { wch: 8 },  // seq
+    { wch: 22 }, // name
+    { wch: 14 }, // zone
+    { wch: 20 }, // easting
+    { wch: 20 }, // northing
+    { wch: 16 }, // elevation
     { wch: 22 }, // mgrs
+    { wch: 18 }, // lat
+    { wch: 18 }, // lng
+    { wch: 22 }, // category
+    { wch: 25 }, // description
     { wch: 10 }, // locked
     { wch: 10 }, // color
     { wch: 24 }, // timestamp
+    { wch: 18 }, // id
   ];
   XLSX.utils.book_append_sheet(workbook, pointsSheet, isAr ? 'النقاط' : 'Survey Points');
 

@@ -91,6 +91,7 @@ interface AppState {
     | 'settings'
     | 'converter'
     | 'two_point_measure'
+    | 'line_stationing'
     | null;
   tempMapClickCoords: TempMapClickCoords | null;
   quickMapPopover: MapPopoverCoords | null;
@@ -131,6 +132,7 @@ interface AppState {
   // Custom user categories
   categories: string[];
   addCategory: (name: string) => void;
+  renameCategory: (oldName: string, newName: string) => void;
   deleteCategory: (name: string) => void;
 
   setIsAddingPointMode: (active: boolean) => void;
@@ -173,6 +175,7 @@ interface AppState {
       | 'settings'
       | 'converter'
       | 'two_point_measure'
+      | 'line_stationing'
       | null
   ) => void;
 
@@ -201,7 +204,7 @@ export const useStore = create<AppState>()(
       manualZoneOverride: null,
 
       exportSettings: {
-        selectedColumns: ['id', 'name', 'description', 'category', 'zone', 'hemisphere', 'easting', 'northing', 'elevation', 'timestamp'],
+        selectedColumns: ['seq', 'name', 'zone', 'easting', 'northing', 'elevation', 'mgrs', 'latitude', 'longitude', 'category', 'description', 'timestamp'],
         orientation: 'horizontal',
       },
 
@@ -519,6 +522,16 @@ export const useStore = create<AppState>()(
       deleteCategory: (name) => {
         set((state) => ({
           categories: state.categories.filter((c) => c !== name),
+          points: state.points.map((pt) => (pt.category === name ? { ...pt, category: undefined } : pt)),
+        }));
+      },
+
+      renameCategory: (oldName, newName) => {
+        const trimmed = newName.trim();
+        if (!trimmed || oldName === trimmed) return;
+        set((state) => ({
+          categories: state.categories.map((c) => (c === oldName ? trimmed : c)),
+          points: state.points.map((pt) => (pt.category === oldName ? { ...pt, category: trimmed } : pt)),
         }));
       },
 

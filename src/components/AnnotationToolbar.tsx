@@ -1,7 +1,7 @@
 import React from 'react';
 import { useStore } from '../store/useStore';
 import { getTranslation } from '../utils/translations';
-import { PenTool, Type, Plus, Ruler, MousePointer2, ArrowLeftRight, Compass } from 'lucide-react';
+import { PenTool, Type, Plus, Ruler, MousePointer2, ArrowLeftRight, Compass, Route } from 'lucide-react';
 
 export const AnnotationToolbar: React.FC = () => {
   const language = useStore((s) => s.language);
@@ -132,6 +132,30 @@ export const AnnotationToolbar: React.FC = () => {
           } text-xs font-bold whitespace-nowrap transition-all duration-300 ease-out`}
         >
           {isAr ? 'قياس بين نقطتين' : '2-Point Measure'}
+        </span>
+      </button>
+
+      {/* Road Stationing / Line Stationing */}
+      <button
+        onClick={() => setActiveModal(activeModal === 'line_stationing' ? null : 'line_stationing')}
+        className={`group relative flex ${
+          isAr ? 'flex-row-reverse' : 'flex-row'
+        } items-center h-12 rounded-2xl shadow-xl transition-all duration-300 ease-out cursor-pointer overflow-hidden ${
+          activeModal === 'line_stationing'
+            ? 'bg-amber-500 text-white ring-2 ring-amber-400/80 shadow-amber-500/30'
+            : 'bg-slate-900/90 text-slate-300 hover:bg-slate-800 hover:text-amber-400 backdrop-blur-md border border-slate-700/60'
+        }`}
+      >
+        <div className="w-12 h-12 flex items-center justify-center shrink-0">
+          <Route className="w-5 h-5 transition-transform duration-300 group-hover:scale-110" />
+        </div>
+        <span
+          dir={isAr ? 'rtl' : 'ltr'}
+          className={`max-w-0 opacity-0 group-hover:max-w-xs group-hover:opacity-100 ${
+            isAr ? 'group-hover:pl-3.5 group-hover:pr-1' : 'group-hover:pr-3.5 group-hover:pl-1'
+          } text-xs font-bold whitespace-nowrap transition-all duration-300 ease-out`}
+        >
+          {isAr ? 'تثبيت نقاط مسار' : 'Road Stationing'}
         </span>
       </button>
 

@@ -70,6 +70,7 @@ export type TileLayerType = 'satellite' | 'hybrid' | 'streets' | 'topo' | 'dark'
 export type Language = 'ar' | 'en';
 
 export type ExportColumnKey = 
+  | 'seq'
   | 'id'
   | 'name'
   | 'description'
@@ -87,6 +88,7 @@ export type ExportColumnKey =
 export interface ExportSettings {
   selectedColumns: ExportColumnKey[];
   orientation: 'horizontal' | 'vertical';
+  sortBy?: 'chronological_asc' | 'chronological_desc' | 'name_numeric' | 'name_alpha';
 }
 
 export interface MeasurePoint {

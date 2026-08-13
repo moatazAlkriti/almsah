@@ -11,6 +11,7 @@ import { ImportResultModal } from './components/ImportResultModal';
 import { SettingsModal } from './components/SettingsModal';
 import { CoordinateConverterModal } from './components/CoordinateConverterModal';
 import { PointToPointMeasureModal } from './components/PointToPointMeasureModal';
+import { LineStationingModal } from './components/LineStationingModal';
 import { OnMapMeasureHUD } from './components/OnMapMeasureHUD';
 import { DistanceMeasurePanel } from './components/DistanceMeasurePanel';
 import { ToastContainer } from './components/ToastContainer';
@@ -60,6 +61,7 @@ export default function App() {
       <SettingsModal />
       <CoordinateConverterModal />
       <PointToPointMeasureModal />
+      <LineStationingModal />
     </div>
   );
 }
