@@ -57,6 +57,7 @@ export interface TempMapClickCoords {
   lng: number;
   utm: UTMCoordinate;
   elevation?: number;
+  category?: string;
 }
 
 export interface ContextMenuData {
@@ -96,6 +97,9 @@ export interface MeasurePoint {
   lat: number;
   lng: number;
   utm: UTMCoordinate;
+  elevation?: number;
+  fromPointId?: string;
+  fromPointName?: string;
 }
 
 export interface DistanceMeasurement {

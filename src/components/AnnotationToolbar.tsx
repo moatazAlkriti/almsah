@@ -1,7 +1,7 @@
 import React from 'react';
 import { useStore } from '../store/useStore';
 import { getTranslation } from '../utils/translations';
-import { PenTool, Type, Plus, Ruler, MousePointer2, ArrowLeftRight, Compass, Route } from 'lucide-react';
+import { PenTool, Type, Plus, Ruler, MousePointer2, ArrowLeftRight, Compass, Route, BoxSelect } from 'lucide-react';
 
 export const AnnotationToolbar: React.FC = () => {
   const language = useStore((s) => s.language);
@@ -16,6 +16,8 @@ export const AnnotationToolbar: React.FC = () => {
   const setIsAddingPointMode = useStore((s) => s.setIsAddingPointMode);
   const isMeasuringMode = useStore((s) => s.isMeasuringMode);
   const setIsMeasuringMode = useStore((s) => s.setIsMeasuringMode);
+  const isSelectionMode = useStore((s) => s.isSelectionMode);
+  const setIsSelectionMode = useStore((s) => s.setIsSelectionMode);
 
   const activeModal = useStore((s) => s.activeModal);
   const setActiveModal = useStore((s) => s.setActiveModal);
@@ -26,9 +28,10 @@ export const AnnotationToolbar: React.FC = () => {
     setIsAddingTextMode(false);
     setIsAddingPointMode(false);
     setIsMeasuringMode(false);
+    setIsSelectionMode(false);
   };
 
-  const activeMode = isDrawingLineMode ? 'line' : isAddingTextMode ? 'text' : isAddingPointMode ? 'point' : isMeasuringMode ? 'measure' : 'none';
+  const activeMode = isDrawingLineMode ? 'line' : isAddingTextMode ? 'text' : isAddingPointMode ? 'point' : isMeasuringMode ? 'measure' : isSelectionMode ? 'selection' : 'none';
 
   return (
     <div
@@ -58,6 +61,30 @@ export const AnnotationToolbar: React.FC = () => {
           } text-xs font-bold whitespace-nowrap transition-all duration-300 ease-out`}
         >
           {isAr ? 'تحديد وتصفح' : 'Select & Pan'}
+        </span>
+      </button>
+
+      {/* Box Selection Tool */}
+      <button
+        onClick={() => setIsSelectionMode(!isSelectionMode)}
+        className={`group relative flex ${
+          isAr ? 'flex-row-reverse' : 'flex-row'
+        } items-center h-12 rounded-2xl shadow-xl transition-all duration-300 ease-out cursor-pointer overflow-hidden ${
+          isSelectionMode
+            ? 'bg-indigo-500 text-white ring-2 ring-indigo-400/80 shadow-indigo-500/30'
+            : 'bg-slate-900/90 text-slate-300 hover:bg-slate-800 hover:text-indigo-400 backdrop-blur-md border border-slate-700/60'
+        }`}
+      >
+        <div className="w-12 h-12 flex items-center justify-center shrink-0">
+          <BoxSelect className="w-5 h-5 transition-transform duration-300 group-hover:scale-110" />
+        </div>
+        <span
+          dir={isAr ? 'rtl' : 'ltr'}
+          className={`max-w-0 opacity-0 group-hover:max-w-xs group-hover:opacity-100 ${
+            isAr ? 'group-hover:pl-3.5 group-hover:pr-1' : 'group-hover:pr-3.5 group-hover:pl-1'
+          } text-xs font-bold whitespace-nowrap transition-all duration-300 ease-out`}
+        >
+          {isAr ? 'تحديد مربع للنقاط' : 'Box Select Points'}
         </span>
       </button>
 

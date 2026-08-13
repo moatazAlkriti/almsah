@@ -67,7 +67,10 @@ interface AppState {
   isAddingPointMode: boolean;
   isContinuousAddMode: boolean;
   isMeasuringMode: boolean;
+  isSelectionMode: boolean;
   measurePoints: MeasurePoint[];
+  selectedPointIdsForAction: string[];
+
 
   // Annotations State
   annotations: Annotation[];
@@ -84,6 +87,7 @@ interface AppState {
     | 'edit_point'
     | 'import_excel'
     | 'batch_zone'
+    | 'batch_category'
     | 'export_excel'
     | 'export_preview'
     | 'import_options'
@@ -138,6 +142,8 @@ interface AppState {
   setIsAddingPointMode: (active: boolean) => void;
   setIsContinuousAddMode: (active: boolean) => void;
   setIsMeasuringMode: (active: boolean) => void;
+  setIsSelectionMode: (active: boolean) => void;
+  setSelectedPointIdsForAction: (ids: string[]) => void;
   addMeasurePoint: (pt: MeasurePoint) => void;
   clearMeasurePoints: () => void;
 
@@ -168,6 +174,7 @@ interface AppState {
       | 'edit_point'
       | 'import_excel'
       | 'batch_zone'
+      | 'batch_category'
       | 'export_excel'
       | 'export_preview'
       | 'import_options'
@@ -224,7 +231,9 @@ export const useStore = create<AppState>()(
       isAddingPointMode: false,
       isContinuousAddMode: false,
       isMeasuringMode: false,
+      isSelectionMode: false,
       measurePoints: [],
+      selectedPointIdsForAction: [],
 
       annotations: [],
       selectedAnnotationId: null,
@@ -542,6 +551,7 @@ export const useStore = create<AppState>()(
           isMeasuringMode: false,
           isDrawingLineMode: false,
           isAddingTextMode: false,
+          isSelectionMode: false,
           drawingLinePoints: [],
         })),
 
@@ -552,6 +562,7 @@ export const useStore = create<AppState>()(
           isMeasuringMode: false,
           isDrawingLineMode: false,
           isAddingTextMode: false,
+          isSelectionMode: false,
           drawingLinePoints: [],
         }),
 
@@ -562,9 +573,23 @@ export const useStore = create<AppState>()(
           isContinuousAddMode: false,
           isDrawingLineMode: false,
           isAddingTextMode: false,
+          isSelectionMode: false,
           drawingLinePoints: [],
-          measurePoints: active ? [] : [],
         }),
+
+      setIsSelectionMode: (active) =>
+        set((state) => ({
+          isSelectionMode: active,
+          isMeasuringMode: false,
+          isAddingPointMode: false,
+          isContinuousAddMode: false,
+          isDrawingLineMode: false,
+          isAddingTextMode: false,
+          drawingLinePoints: [],
+          selectedPointIdsForAction: active ? [] : state.selectedPointIdsForAction,
+        })),
+
+      setSelectedPointIdsForAction: (ids) => set({ selectedPointIdsForAction: ids }),
 
       addMeasurePoint: (pt) => set((state) => ({ measurePoints: [...state.measurePoints, pt] })),
       clearMeasurePoints: () => set({ measurePoints: [] }),
@@ -623,6 +648,7 @@ export const useStore = create<AppState>()(
         isAddingTextMode: false,
         isAddingPointMode: false,
         isMeasuringMode: active ? false : s.isMeasuringMode,
+        isSelectionMode: false,
         drawingLinePoints: active ? [] : s.drawingLinePoints,
         pendingTextLocation: null,
         quickMapPopover: null,
@@ -633,6 +659,7 @@ export const useStore = create<AppState>()(
         isDrawingLineMode: false,
         isAddingPointMode: false,
         isMeasuringMode: active ? false : s.isMeasuringMode,
+        isSelectionMode: false,
         drawingLinePoints: [],
         quickMapPopover: null,
       })),

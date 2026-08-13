@@ -1,7 +1,7 @@
 import React from 'react';
 import { useStore } from '../store/useStore';
 import { formatUTMString, utmToLatLng, latLngToMGRS } from '../utils/utm';
-import { Lock, Unlock, Edit3, Copy, Navigation, Trash2, X, ShieldAlert, Ruler } from 'lucide-react';
+import { Lock, Unlock, Edit3, Copy, Navigation, Trash2, X, ShieldAlert, Ruler, Route } from 'lucide-react';
 
 export const ContextMenu: React.FC = () => {
   const contextMenu = useStore((s) => s.contextMenu);
@@ -163,6 +163,7 @@ export const ContextMenu: React.FC = () => {
               lat: point.lat,
               lng: point.lng,
               utm: point.utm,
+              elevation: point.elevation,
             });
             showToast(isAr ? 'تحرك الان لقياس المسافة لحظياً' : 'Move cursor for live measurement', 'info');
             setContextMenu(null);
@@ -171,6 +172,36 @@ export const ContextMenu: React.FC = () => {
         >
           <Ruler className="w-4 h-4 text-amber-400" />
           <span>{isAr ? 'بدء القياس الحي المستمر' : 'Start Live Measurement'}</span>
+        </button>
+
+        <button
+          onClick={() => {
+            const st = useStore.getState();
+            st.setSelectedPointId(point.id);
+            st.clearMeasurePoints();
+            st.setIsMeasuringMode(true);
+            st.addMeasurePoint({
+              id: `m_${point.id}`,
+              lat: point.lat,
+              lng: point.lng,
+              utm: point.utm,
+              elevation: point.elevation,
+              fromPointId: point.id,
+              fromPointName: point.name,
+            });
+            st.setActiveModal(null);
+            showToast(
+              isAr
+                ? `تم تحديد النقطة (${point.name}) كبداية للمسار. انقر على الخريطة لتحديد نقطة النهاية 🎯`
+                : `Point (${point.name}) set as start point. Click map for endpoint 🎯`,
+              'success'
+            );
+            setContextMenu(null);
+          }}
+          className="w-full py-2 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 flex items-center gap-2 transition-colors font-semibold"
+        >
+          <Route className="w-4 h-4 text-amber-400" />
+          <span>{isAr ? 'تكملة مسار' : 'Extend Line'}</span>
         </button>
 
         <button

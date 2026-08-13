@@ -3,6 +3,7 @@ import { useStore } from '../store/useStore';
 import { getTranslation } from '../utils/translations';
 import { utmToLatLng, validateUTM, getMGRSBandFromLat, latLngToMGRS } from '../utils/utm';
 import { fetchElevation } from '../utils/elevation';
+import { getNextPointSequenceNumber, detectMostCommonPrefix } from '../utils/pointNaming';
 import { PointCategory, Hemisphere } from '../types';
 import { MapPin, X, Save, CheckCircle2, AlertTriangle, Layers, Palette, RotateCw, Loader2, Info } from 'lucide-react';
 
@@ -125,9 +126,15 @@ export const PointModal: React.FC = () => {
       setElevation(editingPoint.elevation !== undefined ? String(editingPoint.elevation) : '');
       setColor(editingPoint.color || '#10b981');
     } else if (tempMapClickCoords) {
-      setName(`نقطة جديدة (${tempMapClickCoords.utm.zone}${tempMapClickCoords.utm.hemisphere})`);
+      const prefix = detectMostCommonPrefix(points);
+      const nextSeq = getNextPointSequenceNumber(points, prefix);
+      const autoName = prefix && prefix !== 'TH' && prefix !== 'نقطة'
+        ? `${prefix} ${nextSeq}`
+        : (isAr ? `نقطة ${nextSeq}` : `Point ${nextSeq}`);
+
+      setName(autoName);
       setDescription('');
-      setCategory('');
+      setCategory(tempMapClickCoords.category || '');
       setIsCustomCategory(false);
       setCustomCategoryName('');
       setZone(tempMapClickCoords.utm.zone);
@@ -144,7 +151,13 @@ export const PointModal: React.FC = () => {
         triggerFetchElevation(tempMapClickCoords.lat, tempMapClickCoords.lng);
       }
     } else {
-      setName('');
+      const prefix = detectMostCommonPrefix(points);
+      const nextSeq = getNextPointSequenceNumber(points, prefix);
+      const autoName = prefix && prefix !== 'TH' && prefix !== 'نقطة'
+        ? `${prefix} ${nextSeq}`
+        : (isAr ? `نقطة ${nextSeq}` : `Point ${nextSeq}`);
+
+      setName(autoName);
       setDescription('');
       setCategory('');
       setZone(manualZoneOverride || 38);

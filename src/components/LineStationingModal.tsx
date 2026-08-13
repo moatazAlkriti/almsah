@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useStore } from '../store/useStore';
 import {
   X,
@@ -12,7 +12,10 @@ import {
   Layers,
   ArrowRightLeft,
   ListOrdered,
-  Ruler
+  Ruler,
+  Hash,
+  Link2,
+  RotateCw
 } from 'lucide-react';
 import { SurveyPoint, UTMCoordinate, AnnotationLine } from '../types';
 import {
@@ -24,6 +27,12 @@ import {
   formatUTMCompact
 } from '../utils/utm';
 import { fetchElevation } from '../utils/elevation';
+import {
+  getHighestPointNumber,
+  getNextPointSequenceNumber,
+  detectMostCommonPrefix,
+  extractPointNumber
+} from '../utils/pointNaming';
 
 interface GeneratedStationPoint {
   stationDist: number; // e.g. 0, 20, 40 meters
@@ -38,10 +47,14 @@ export const LineStationingModal: React.FC = () => {
   const activeModal = useStore((s) => s.activeModal);
   const setActiveModal = useStore((s) => s.setActiveModal);
   const language = useStore((s) => s.language);
+  const points = useStore((s) => s.points);
+  const selectedPointId = useStore((s) => s.selectedPointId);
   const measurePoints = useStore((s) => s.measurePoints);
   const annotations = useStore((s) => s.annotations);
   const addPoint = useStore((s) => s.addPoint);
   const showToast = useStore((s) => s.showToast);
+  const setIsMeasuringMode = useStore((s) => s.setIsMeasuringMode);
+  const clearMeasurePoints = useStore((s) => s.clearMeasurePoints);
   const autoFetchElevation = useStore((s) => s.autoFetchElevation);
   const categories = useStore((s) => s.categories);
   const addCategory = useStore((s) => s.addCategory);
@@ -66,10 +79,22 @@ export const LineStationingModal: React.FC = () => {
   const [stepDistance, setStepDistance] = useState<number>(20); // 20 meters default for road paving
   const [pointCount, setPointCount] = useState<number>(10);
   const [startStation, setStartStation] = useState<number>(0); // 0+000
-  const [namingFormat, setNamingFormat] = useState<'chainage' | 'station' | 'point' | 'custom'>('chainage');
-  const [customPrefix, setCustomPrefix] = useState<string>('P');
+  const [namingFormat, setNamingFormat] = useState<'number_only' | 'custom' | 'point' | 'chainage' | 'station'>('number_only');
+  const [customPrefix, setCustomPrefix] = useState<string>('');
+  const [startSequenceIndex, setStartSequenceIndex] = useState<number>(1);
+  const [skipStartPoint, setSkipStartPoint] = useState<boolean>(false);
   const [includeEndpoints, setIncludeEndpoints] = useState<boolean>(true);
   const [category, setCategory] = useState<string>('نقاط مسار / تبليط');
+  const [isCustomCategory, setIsCustomCategory] = useState<boolean>(false);
+  const [customCategoryName, setCustomCategoryName] = useState<string>('');
+
+  // Collect all unique categories
+  const allCategories = useMemo(() => {
+    const cats = new Set([...categories, ...points.map((p) => p.category).filter(Boolean)]);
+    // add a default suggestion if not present
+    cats.add('نقاط مسار / تبليط');
+    return Array.from(cats) as string[];
+  }, [categories, points]);
 
   // Preview generated points
   const [previewPoints, setPreviewPoints] = useState<GeneratedStationPoint[]>([]);
@@ -78,24 +103,88 @@ export const LineStationingModal: React.FC = () => {
   // Line annotations
   const lineAnnotations = annotations.filter((a): a is AnnotationLine => a.type === 'line');
 
+  // Highest existing sequence number
+  const highestExistingNum = useMemo(() => {
+    return getHighestPointNumber(points, customPrefix);
+  }, [points, customPrefix]);
+
   useEffect(() => {
     if (activeModal === 'line_stationing') {
-      if (measurePoints.length >= 2) {
+      const detectedPrefix = detectMostCommonPrefix(points);
+      setCustomPrefix(detectedPrefix);
+      if (detectedPrefix === '') {
+        setNamingFormat('number_only');
+      } else {
+        setNamingFormat('custom');
+      }
+
+      // If measurePoints is empty, check if a point is currently selected on the map
+      let activeMeasurePoints = measurePoints;
+      if (measurePoints.length === 0 && selectedPointId) {
+        const selPt = points.find((p) => p.id === selectedPointId);
+        if (selPt) {
+          const mp = {
+            id: `m_${selPt.id}`,
+            lat: selPt.lat,
+            lng: selPt.lng,
+            utm: selPt.utm,
+            elevation: selPt.elevation,
+            fromPointId: selPt.id,
+            fromPointName: selPt.name,
+          };
+          useStore.getState().addMeasurePoint(mp);
+          activeMeasurePoints = [mp];
+        }
+      }
+
+      // Check if first measurePoint originated from an existing point
+      const firstMp = activeMeasurePoints[0];
+      const isFromExistingPoint = Boolean(firstMp?.fromPointId || firstMp?.fromPointName);
+
+      if (isFromExistingPoint) {
+        setSkipStartPoint(true);
+        const pointNum = extractPointNumber(firstMp?.fromPointName);
+        if (pointNum !== null && pointNum > 0) {
+          setStartSequenceIndex(pointNum + 1);
+        } else {
+          const nextSeq = getNextPointSequenceNumber(points, detectedPrefix);
+          setStartSequenceIndex(nextSeq);
+        }
+      } else {
+        setSkipStartPoint(false);
+        const nextSeq = getNextPointSequenceNumber(points, detectedPrefix);
+        setStartSequenceIndex(nextSeq);
+      }
+
+      if (activeMeasurePoints.length >= 1) {
         setSourceType('measure');
+        const p1 = activeMeasurePoints[0];
+        setManualZone(p1.utm.zone);
+        setManualStartEasting(p1.utm.easting.toFixed(2));
+        setManualStartNorthing(p1.utm.northing.toFixed(2));
+        if (p1.elevation !== undefined) setManualStartElev(p1.elevation.toString());
+        if (activeMeasurePoints.length >= 2) {
+          const p2 = activeMeasurePoints[1];
+          setManualEndEasting(p2.utm.easting.toFixed(2));
+          setManualEndNorthing(p2.utm.northing.toFixed(2));
+          if (p2.elevation !== undefined) setManualEndElev(p2.elevation.toString());
+        }
       } else if (lineAnnotations.length > 0) {
-        setSourceType('line');
         setSelectedLineId(lineAnnotations[0].id);
+        setSourceType('line');
       } else {
         setSourceType('manual');
       }
     }
-  }, [activeModal, measurePoints.length, lineAnnotations.length]);
+  }, [activeModal, measurePoints.length, lineAnnotations.length, points]);
 
   if (activeModal !== 'line_stationing') return null;
 
   // Helper to format station name
   const formatStationName = (distMeters: number, index: number) => {
     const totalDist = startStation + distMeters;
+    const seqNum = startSequenceIndex + index;
+
     if (namingFormat === 'chainage') {
       // CH 0+020
       const km = Math.floor(totalDist / 1000);
@@ -109,9 +198,16 @@ export const LineStationingModal: React.FC = () => {
       const mStr = m < 10 ? `00${m}` : m < 100 ? `0${m}` : `${m}`;
       return `STA ${km}+${mStr}`;
     } else if (namingFormat === 'point') {
-      return isAr ? `نقطة مسار ${index + 1}` : `Station ${index + 1}`;
+      return isAr ? `نقطة ${seqNum}` : `Point ${seqNum}`;
+    } else if (namingFormat === 'number_only') {
+      return `${seqNum}`;
     } else {
-      return `${customPrefix} ${index + 1}`;
+      const prefix = customPrefix ? customPrefix.trim() : '';
+      if (!prefix) return `${seqNum}`;
+      if (prefix.endsWith('-') || prefix.endsWith('/')) {
+        return `${prefix}${seqNum}`;
+      }
+      return `${prefix} ${seqNum}`;
     }
   };
 
@@ -205,6 +301,11 @@ export const LineStationingModal: React.FC = () => {
       (a, b) => a - b
     );
 
+    // If skipStartPoint is checked, filter out distance 0 to avoid duplicating the existing start point (e.g. Point 15)
+    if (skipStartPoint) {
+      targetDistances = targetDistances.filter((d) => d > 0.001);
+    }
+
     // Interpolate points along polyline
     const generated: GeneratedStationPoint[] = [];
 
@@ -263,6 +364,12 @@ export const LineStationingModal: React.FC = () => {
     setPreviewPoints(generated);
   };
 
+  const handleCloseModal = () => {
+    setIsMeasuringMode(false);
+    clearMeasurePoints();
+    setActiveModal(null);
+  };
+
   // Save points to store
   const handleSavePoints = async () => {
     if (previewPoints.length === 0) {
@@ -272,8 +379,10 @@ export const LineStationingModal: React.FC = () => {
 
     setIsGenerating(true);
 
-    if (category && !categories.includes(category)) {
-      addCategory(category);
+    const finalCategory = isCustomCategory ? customCategoryName.trim() : category;
+
+    if (finalCategory && !categories.includes(finalCategory)) {
+      addCategory(finalCategory);
     }
 
     let savedCount = 0;
@@ -293,7 +402,7 @@ export const LineStationingModal: React.FC = () => {
         utm: pt.utm,
         lat: pt.lat,
         lng: pt.lng,
-        category: category || 'نقاط مسار / تبليط',
+        category: finalCategory || 'نقاط مسار / تبليط',
         description: `محطة مسافة ${pt.stationDist.toFixed(2)}m على المسار`,
         elevation: elev,
         color: '#3b82f6', // Bright blue for stationing
@@ -308,6 +417,8 @@ export const LineStationingModal: React.FC = () => {
         : `Successfully added ${savedCount} station points 🛣️`,
       'success'
     );
+    setIsMeasuringMode(false);
+    clearMeasurePoints();
     setActiveModal(null);
   };
 
@@ -335,7 +446,7 @@ export const LineStationingModal: React.FC = () => {
             </div>
           </div>
           <button
-            onClick={() => setActiveModal(null)}
+            onClick={handleCloseModal}
             className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-xl hover:bg-slate-700 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -419,6 +530,95 @@ export const LineStationingModal: React.FC = () => {
                 </span>
               </button>
             </div>
+
+            {/* Waiting for endpoint banner if measurePoints.length === 1 */}
+            {sourceType === 'measure' && measurePoints.length === 1 && (
+              <div className="p-4 bg-amber-500/10 border border-amber-500/40 rounded-2xl space-y-3 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-amber-300 font-semibold text-xs">
+                    <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>
+                      {isAr
+                        ? `نقطة البداية المحددة: ${measurePoints[0].fromPointName ? `[${measurePoints[0].fromPointName}]` : ''} (E: ${measurePoints[0].utm.easting.toFixed(1)}, N: ${measurePoints[0].utm.northing.toFixed(1)})`
+                        : `Start Point: ${measurePoints[0].fromPointName ? `[${measurePoints[0].fromPointName}]` : ''} (E: ${measurePoints[0].utm.easting.toFixed(1)}, N: ${measurePoints[0].utm.northing.toFixed(1)})`}
+                    </span>
+                  </div>
+                  <span className="text-[11px] bg-amber-500/20 text-amber-300 px-2.5 py-0.5 rounded-full font-mono border border-amber-500/30">
+                    {isAr ? 'بانتظار نقطة النهاية 🎯' : 'Waiting Endpoint 🎯'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  {isAr
+                    ? 'انقر على الخريطة مباشرة لتحديد نقطة نهاية المسار، وسيتم احتساب الترقيم والمسافة وتوليد النقاط القادمة تلقائياً.'
+                    : 'Click anywhere on the map to set the endpoint and complete the stationing.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveModal(null);
+                    setIsMeasuringMode(true);
+                    showToast(
+                      isAr ? 'انقر على الخريطة الآن لتحديد نقطة نهاية المسار 🎯' : 'Click on map now to select endpoint 🎯',
+                      'info'
+                    );
+                  }}
+                  className="w-full py-2.5 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg shadow-amber-500/20"
+                >
+                  <MapPin className="w-4 h-4" />
+                  <span>{isAr ? 'انقر على الخريطة لتحديد نقطة النهاية الآن 🎯' : 'Click Map for Endpoint Now 🎯'}</span>
+                </button>
+              </div>
+            )}
+
+            {/* Change endpoint on map when measurePoints >= 2 */}
+            {sourceType === 'measure' && measurePoints.length >= 2 && (
+              <div className="p-3.5 bg-slate-800/60 border border-slate-700/80 rounded-2xl space-y-2 text-xs">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-700/60 pb-2">
+                  <div className="flex items-center gap-2 text-amber-300 font-bold">
+                    <Ruler className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>
+                      {isAr
+                        ? `طول المسار الكلي: ${calculateUTMDistance(measurePoints[0].utm, measurePoints[measurePoints.length - 1].utm).toFixed(1)} متر`
+                        : `Total Path Length: ${calculateUTMDistance(measurePoints[0].utm, measurePoints[measurePoints.length - 1].utm).toFixed(1)}m`}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveModal(null);
+                      setIsMeasuringMode(true);
+                      showToast(
+                        isAr
+                          ? 'انقر على الخريطة لتغيير نقطة النهاية 🎯'
+                          : 'Click on map to change endpoint 🎯',
+                        'info'
+                      );
+                    }}
+                    className="px-3 py-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 rounded-xl font-medium shrink-0 transition-colors flex items-center gap-1.5"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span>{isAr ? 'تعديل نقطة النهاية من الخريطة 🎯' : 'Change Endpoint on Map 🎯'}</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-300">
+                  <div className="flex items-center gap-1.5 bg-slate-900/60 p-2 rounded-xl border border-slate-800">
+                    <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span className="text-slate-400">{isAr ? 'نقطة البداية:' : 'Start:'}</span>
+                    <span className="font-bold text-emerald-400 font-mono">
+                      {measurePoints[0].fromPointName ? `${measurePoints[0].fromPointName}` : `E: ${measurePoints[0].utm.easting.toFixed(1)}, N: ${measurePoints[0].utm.northing.toFixed(1)}`}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 bg-slate-900/60 p-2 rounded-xl border border-slate-800">
+                    <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span className="text-slate-400">{isAr ? 'نقطة النهاية:' : 'End:'}</span>
+                    <span className="font-bold text-amber-300 font-mono">
+                      {measurePoints[measurePoints.length - 1].fromPointName ? `${measurePoints[measurePoints.length - 1].fromPointName}` : `E: ${measurePoints[measurePoints.length - 1].utm.easting.toFixed(1)}, N: ${measurePoints[measurePoints.length - 1].utm.northing.toFixed(1)}`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Line Selection if 'line' */}
             {sourceType === 'line' && (
@@ -615,79 +815,179 @@ export const LineStationingModal: React.FC = () => {
                 </div>
               )}
 
-              <div className="flex items-center gap-2 pt-1">
-                <input
-                  type="checkbox"
-                  id="incEndpoints"
-                  checked={includeEndpoints}
-                  onChange={(e) => setIncludeEndpoints(e.target.checked)}
-                  className="rounded bg-slate-800 border-slate-700 text-amber-500 focus:ring-0"
-                />
-                <label htmlFor="incEndpoints" className="text-xs text-slate-300 cursor-pointer">
-                  {isAr ? 'تثبيت نقطتي البداية والنهاية دائماً' : 'Always include Start and End points'}
-                </label>
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center gap-2.5 bg-amber-500/10 border border-amber-500/30 p-2.5 rounded-xl">
+                  <input
+                    type="checkbox"
+                    id="skipStart"
+                    checked={skipStartPoint}
+                    onChange={(e) => setSkipStartPoint(e.target.checked)}
+                    className="rounded bg-slate-800 border-slate-700 text-amber-500 focus:ring-0 w-4 h-4 shrink-0"
+                  />
+                  <label htmlFor="skipStart" className="text-xs text-amber-200 cursor-pointer font-medium select-none flex-1">
+                    {isAr
+                      ? 'تخطي نقطة البداية (0م) — لتجنب تكرار نقطة الانطلاق في نفس موقعها'
+                      : 'Skip starting point (0m) — Avoid creating a duplicate point at start location'}
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2 px-1">
+                  <input
+                    type="checkbox"
+                    id="incEndpoints"
+                    checked={includeEndpoints}
+                    onChange={(e) => setIncludeEndpoints(e.target.checked)}
+                    className="rounded bg-slate-800 border-slate-700 text-amber-500 focus:ring-0"
+                  />
+                  <label htmlFor="incEndpoints" className="text-xs text-slate-300 cursor-pointer">
+                    {isAr ? 'تثبيت نقطة النهاية للمسار دائماً' : 'Always include End point'}
+                  </label>
+                </div>
               </div>
             </div>
 
             {/* Section 3: Naming & Category */}
             <div className="space-y-4">
-              <label className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-                <ListOrdered className="w-4 h-4 text-amber-400" />
-                {isAr ? 'صيغة الترقيم والتسمية' : 'Station Naming Format'}
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+                  <ListOrdered className="w-4 h-4 text-amber-400" />
+                  {isAr ? 'صيغة الترقيم والتسمية' : 'Station Naming Format'}
+                </label>
+                {highestExistingNum > 0 && (
+                  <span className="text-[11px] text-emerald-400 font-mono bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <Link2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                    {isAr ? `أعلى رقم حالي: ${highestExistingNum}` : `Highest existing: ${highestExistingNum}`}
+                  </span>
+                )}
+              </div>
 
               <select
                 value={namingFormat}
                 onChange={(e) => setNamingFormat(e.target.value as any)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-slate-200 text-sm focus:outline-none focus:border-amber-500"
               >
+                <option value="number_only">
+                  {isAr ? 'تسلسل رقمي مجرد (الافتراضي: 1, 2, 3... 15, 16)' : 'Numbers Only (Default: 1, 2, 3... 15, 16)'}
+                </option>
+                <option value="custom">
+                  {isAr ? 'بادئة وتسمية مخصصة (مثال: TH 101, P 101)' : 'Custom Prefix & Index (e.g. TH 101)'}
+                </option>
+                <option value="point">
+                  {isAr ? 'كلمة نقطة + رقم (مثال: نقطة 101, نقطة 102)' : 'Word Point + Index (Point 101)'}
+                </option>
                 <option value="chainage">
                   {isAr ? 'ترقيم محطات الطرق (CH 0+000, CH 0+020)' : 'Chainage Format (CH 0+000)'}
                 </option>
                 <option value="station">
                   {isAr ? 'ترقيم محطات هندسية (STA 0+000, STA 0+020)' : 'Station Format (STA 0+000)'}
                 </option>
-                <option value="point">
-                  {isAr ? 'تسلسل رقمي عادي (نقطة مسار 1, 2...)' : 'Numeric Sequence (Point 1, Point 2)'}
-                </option>
-                <option value="custom">
-                  {isAr ? 'بادئة مخصصة (مثال: P 1, P 2)' : 'Custom Prefix (e.g. P 1, P 2)'}
-                </option>
               </select>
 
               {namingFormat === 'custom' && (
                 <div className="space-y-1">
-                  <label className="text-xs text-slate-400">{isAr ? 'البادئة المخصصة:' : 'Custom Prefix:'}</label>
+                  <label className="text-xs text-slate-400">{isAr ? 'البادئة المخصصة (مثال: TH, P, STA):' : 'Custom Prefix (e.g. TH, P, STA):'}</label>
                   <input
                     type="text"
                     value={customPrefix}
                     onChange={(e) => setCustomPrefix(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-1.5 text-slate-200 text-sm"
+                    placeholder="e.g. TH or P"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-1.5 text-slate-200 text-sm font-mono"
                   />
                 </div>
               )}
 
+              {/* Start Sequence Index Input */}
+              <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs text-slate-300 font-semibold flex items-center gap-1.5">
+                    <Hash className="w-3.5 h-3.5 text-amber-400" />
+                    {isAr ? 'رقم بداية التسلسل في التسمية:' : 'Starting Sequence Index:'}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setStartSequenceIndex(highestExistingNum > 0 ? highestExistingNum + 1 : 1)}
+                    className="text-[11px] text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors"
+                    title={isAr ? 'إعادة ضبط رقم البداية ليكمل أحدث نقطة موجودة' : 'Reset start number to follow last existing point'}
+                  >
+                    <RotateCw className="w-3 h-3" />
+                    <span>{isAr ? `إكمال من أحدث نقطة (${highestExistingNum + 1})` : `Continue from last (${highestExistingNum + 1})`}</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min={1}
+                    value={startSequenceIndex}
+                    onChange={(e) => setStartSequenceIndex(parseInt(e.target.value, 10) || 1)}
+                    className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-amber-300 font-bold font-mono text-sm focus:outline-none focus:border-amber-500"
+                  />
+                  <span className="text-xs text-slate-400 shrink-0 font-mono">
+                    {isAr
+                      ? `أول نقطة ستكون: "${formatStationName(0, 0)}"`
+                      : `First point: "${formatStationName(0, 0)}"`}
+                  </span>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-xs text-slate-400">
-                    {isAr ? 'محطة البداية (متر):' : 'Start Station (m):'}
+                    {isAr ? 'محطة البداية للمسافة (متر):' : 'Start Station Distance (m):'}
                   </label>
                   <input
                     type="number"
                     value={startStation}
                     onChange={(e) => setStartStation(parseFloat(e.target.value) || 0)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-200 text-sm"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-200 text-sm font-mono"
                   />
                 </div>
 
                 <div className="space-y-1">
                   <label className="text-xs text-slate-400">{isAr ? 'التصنيف:' : 'Category:'}</label>
-                  <input
-                    type="text"
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-200 text-sm"
-                  />
+                  {isCustomCategory ? (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={customCategoryName}
+                        onChange={(e) => setCustomCategoryName(e.target.value)}
+                        placeholder={isAr ? 'اكتب اسم المجلد/التصنيف...' : 'Type new category...'}
+                        className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-200 text-sm focus:outline-none focus:border-amber-500"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCustomCategory(false);
+                          setCategory('نقاط مسار / تبليط');
+                        }}
+                        className="px-2 py-1.5 bg-slate-800 text-slate-300 text-xs rounded-xl hover:bg-slate-700 transition-colors"
+                      >
+                        {isAr ? 'إلغاء' : 'Cancel'}
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={category}
+                      onChange={(e) => {
+                        if (e.target.value === '__NEW_CUSTOM_CAT__') {
+                          setIsCustomCategory(true);
+                        } else {
+                          setCategory(e.target.value);
+                        }
+                      }}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-200 text-sm focus:outline-none focus:border-amber-500"
+                    >
+                      {allCategories.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
+                      <option value="__NEW_CUSTOM_CAT__" className="text-amber-400 font-bold">
+                        {isAr ? '+ إنشاء مجلد/تصنيف جديد...' : '+ Create new category...'}
+                      </option>
+                    </select>
+                  )}
                 </div>
               </div>
             </div>
@@ -778,7 +1078,7 @@ export const LineStationingModal: React.FC = () => {
           </div>
           <div className="flex gap-3">
             <button
-              onClick={() => setActiveModal(null)}
+              onClick={handleCloseModal}
               className="px-6 py-3 rounded-xl bg-slate-800 text-slate-300 font-medium hover:bg-slate-700 transition-colors"
             >
               {isAr ? 'إلغاء' : 'Cancel'}

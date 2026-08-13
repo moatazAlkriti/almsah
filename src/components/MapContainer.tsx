@@ -4,6 +4,7 @@ import { useStore } from '../store/useStore';
 import { latLngToUTM, formatUTMString, calculateHaversineDistance, latLngToMGRS, utmToLatLng, calculateUTMDistance, calculateBearing } from '../utils/utm';
 import { fetchElevation } from '../utils/elevation';
 import { getTranslation } from '../utils/translations';
+import { getNextPointSequenceNumber, detectMostCommonPrefix } from '../utils/pointNaming';
 import { TileLayerType, UTMCoordinate, AnnotationText } from '../types';
 import { Crosshair, Ruler, MapPin, Layers, Lock, Sparkles, LocateFixed, Loader2, AlertCircle, RotateCw, Wifi, PenTool, Type, X } from 'lucide-react';
 import { AnnotationToolbar } from './AnnotationToolbar';
@@ -113,6 +114,7 @@ export const MapContainer: React.FC = () => {
   const isAddingPointMode = useStore((s) => s.isAddingPointMode);
   const isContinuousAddMode = useStore((s) => s.isContinuousAddMode);
   const isMeasuringMode = useStore((s) => s.isMeasuringMode);
+  const isSelectionMode = useStore((s) => s.isSelectionMode);
   const measurePoints = useStore((s) => s.measurePoints);
   const isDrawingLineMode = useStore((s) => s.isDrawingLineMode);
   const isAddingTextMode = useStore((s) => s.isAddingTextMode);
@@ -147,7 +149,6 @@ export const MapContainer: React.FC = () => {
   const [cursorUtm, setCursorUtm] = useState<UTMCoordinate | null>(null);
   const [showLayerPicker, setShowLayerPicker] = useState(false);
   
-
   const isAr = language === 'ar';
 
   // StateRef to avoid stale closures in click handlers without re-registering listeners
@@ -155,6 +156,7 @@ export const MapContainer: React.FC = () => {
     isAddingPointMode,
     isContinuousAddMode,
     isMeasuringMode,
+    isSelectionMode,
     measurePoints,
     isDrawingLineMode,
     isAddingTextMode,
@@ -169,6 +171,7 @@ export const MapContainer: React.FC = () => {
       isAddingPointMode,
       isContinuousAddMode,
       isMeasuringMode,
+      isSelectionMode,
       measurePoints,
       isDrawingLineMode,
       isAddingTextMode,
@@ -177,7 +180,7 @@ export const MapContainer: React.FC = () => {
       language,
       isAr,
     };
-  }, [isAddingPointMode, isContinuousAddMode, isMeasuringMode, measurePoints, isDrawingLineMode, isAddingTextMode, manualZoneOverride, points, language, isAr]);
+  }, [isAddingPointMode, isContinuousAddMode, isMeasuringMode, isSelectionMode, measurePoints, isDrawingLineMode, isAddingTextMode, manualZoneOverride, points, language, isAr]);
 
   const handleLocateUser = () => {
     if (!navigator.geolocation) {
@@ -218,6 +221,7 @@ export const MapContainer: React.FC = () => {
       center: [33.3152, 44.3661], // Baghdad center
       zoom: 6,
       minZoom: 5,
+      maxZoom: 22,
       maxBounds: IRAQ_BOUNDS,
       maxBoundsViscosity: 1.0,
       zoomControl: false,
@@ -297,7 +301,8 @@ export const MapContainer: React.FC = () => {
 
     const provider = TILE_PROVIDERS[activeTileLayer];
     const newTileLayer = L.tileLayer(provider.url, {
-      maxZoom: 19,
+      maxZoom: 22,
+      maxNativeZoom: 18,
       attribution: provider.attribution,
       subdomains: provider.subdomains || ['a', 'b', 'c'],
       keepBuffer: 4,
@@ -319,7 +324,8 @@ export const MapContainer: React.FC = () => {
 
     if (activeTileLayer === 'hybrid') {
       const overlay = L.tileLayer(ESRI_REFERENCE_URL, { 
-        maxZoom: 19,
+        maxZoom: 22,
+        maxNativeZoom: 18,
         keepBuffer: 4,
         updateWhenIdle: true,
       });
@@ -482,12 +488,17 @@ export const MapContainer: React.FC = () => {
 
       if (st.isDrawingLineMode) { st.addDrawingLinePoint({ lat, lng, utm }); return; }
       if (st.isAddingTextMode)  { st.setPendingTextLocation({ lat, lng, utm }); return; }
-      if (st.isMeasuringMode)   { st.addMeasurePoint({ id: `m_${Date.now()}`, lat, lng, utm }); return; }
+      if (st.isMeasuringMode) {
+        st.addMeasurePoint({ id: `m_${Date.now()}`, lat, lng, utm });
+        return;
+      }
       
       if (st.isContinuousAddMode) {
-        const autoName = (st.language === 'ar')
-          ? `نقطة ${st.points.length + 1} (${utm.zone}${utm.hemisphere})`
-          : `Point ${st.points.length + 1} (${utm.zone}${utm.hemisphere})`;
+        const prefix = detectMostCommonPrefix(st.points);
+        const nextSeq = getNextPointSequenceNumber(st.points, prefix);
+        const autoName = prefix && prefix !== 'TH' && prefix !== 'نقطة'
+          ? `${prefix} ${nextSeq}`
+          : (st.language === 'ar' ? `نقطة ${nextSeq}` : `Point ${nextSeq}`);
 
         st.addPoint({
           name: autoName,
@@ -505,6 +516,10 @@ export const MapContainer: React.FC = () => {
         st.setActiveModal('add_point');
         return; 
       }
+      
+      if (st.isSelectionMode) {
+        return;
+      }
 
       st.setQuickMapPopover({ lat, lng, utm, x: e.originalEvent.clientX, y: e.originalEvent.clientY });
       st.setContextMenu(null);
@@ -514,6 +529,80 @@ export const MapContainer: React.FC = () => {
     map.on('click', handleClick);
     return () => { map.off('click', handleClick); };
   }, []);
+
+  // Selection Box Effect
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    let selectionRect: L.Rectangle | null = null;
+    let startLatLng: L.LatLng | null = null;
+    let isDraggingBox = false;
+
+    if (isSelectionMode) {
+      map.dragging.disable();
+      map.getContainer().style.cursor = 'crosshair';
+      
+      const onMouseDown = (e: L.LeafletMouseEvent) => {
+        isDraggingBox = true;
+        startLatLng = e.latlng;
+        selectionRect = L.rectangle(L.latLngBounds(startLatLng, startLatLng), {
+          color: '#6366f1',
+          weight: 2,
+          fillColor: '#818cf8',
+          fillOpacity: 0.3,
+          dashArray: '5, 5',
+          interactive: false
+        }).addTo(map);
+      };
+
+      const onMouseMove = (e: L.LeafletMouseEvent) => {
+        if (!isDraggingBox || !startLatLng || !selectionRect) return;
+        selectionRect.setBounds(L.latLngBounds(startLatLng, e.latlng));
+      };
+
+      const onMouseUp = (e: L.LeafletMouseEvent) => {
+        if (!isDraggingBox || !startLatLng || !selectionRect) return;
+        isDraggingBox = false;
+        const endLatLng = e.latlng;
+        const bounds = L.latLngBounds(startLatLng, endLatLng);
+        
+        // Find points inside
+        const selectedIds = stateRef.current.points
+          .filter(pt => bounds.contains(L.latLng(Number(pt.lat), Number(pt.lng))))
+          .map(pt => pt.id);
+        
+        if (selectedIds.length > 0) {
+          useStore.getState().setSelectedPointIdsForAction(selectedIds);
+          useStore.getState().setActiveModal('batch_category');
+        } else {
+          useStore.getState().showToast(stateRef.current.isAr ? 'لم يتم تحديد أي نقاط' : 'No points selected', 'warning');
+        }
+
+        // Clean up UI
+        map.removeLayer(selectionRect);
+        selectionRect = null;
+        startLatLng = null;
+        useStore.getState().setIsSelectionMode(false);
+      };
+
+      map.on('mousedown', onMouseDown);
+      map.on('mousemove', onMouseMove);
+      map.on('mouseup', onMouseUp);
+
+      return () => {
+        map.dragging.enable();
+        map.getContainer().style.cursor = '';
+        map.off('mousedown', onMouseDown);
+        map.off('mousemove', onMouseMove);
+        map.off('mouseup', onMouseUp);
+        if (selectionRect) map.removeLayer(selectionRect);
+      };
+    } else {
+      map.dragging.enable();
+      map.getContainer().style.cursor = '';
+    }
+  }, [isSelectionMode]);
 
   // 5. Sync Markers on Map
   useEffect(() => {
@@ -613,15 +702,29 @@ export const MapContainer: React.FC = () => {
           }
         });
 
-        // Click marker -> select
+        // Click marker -> select & handle measuring mode
         marker.on('click', (e: any) => {
           L.DomEvent.stopPropagation(e);
           setSelectedPointId(pt.id);
+
+          const st = useStore.getState();
+          if (st.isMeasuringMode) {
+            st.addMeasurePoint({
+              id: `m_${pt.id}`,
+              lat: pt.lat,
+              lng: pt.lng,
+              utm: pt.utm,
+              elevation: pt.elevation,
+              fromPointId: pt.id,
+              fromPointName: pt.name,
+            });
+          }
         });
 
         // Context menu (right click or long touch)
         marker.on('contextmenu', (e: L.LeafletMouseEvent) => {
           L.DomEvent.stopPropagation(e);
+          setSelectedPointId(pt.id);
           setQuickMapPopover(null);
           setContextMenu({
             pointId: pt.id,
