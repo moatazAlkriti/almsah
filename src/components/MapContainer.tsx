@@ -6,7 +6,7 @@ import { fetchElevation } from '../utils/elevation';
 import { getTranslation } from '../utils/translations';
 import { getNextPointSequenceNumber, detectMostCommonPrefix } from '../utils/pointNaming';
 import { TileLayerType, UTMCoordinate, AnnotationText } from '../types';
-import { Crosshair, Ruler, MapPin, Layers, Lock, Sparkles, LocateFixed, Loader2, AlertCircle, RotateCw, Wifi, PenTool, Type, X } from 'lucide-react';
+import { Crosshair, Ruler, MapPin, Layers, Lock, Sparkles, LocateFixed, Loader2, AlertCircle, RotateCw, Wifi, PenTool, Type, X, Eraser, BoxSelect } from 'lucide-react';
 import { AnnotationToolbar } from './AnnotationToolbar';
 import { LineEditorModal } from './LineEditorModal';
 import { TextEditorModal } from './TextEditorModal';
@@ -193,6 +193,9 @@ export const MapContainer: React.FC = () => {
   const isContinuousAddMode = useStore((s) => s.isContinuousAddMode);
   const isMeasuringMode = useStore((s) => s.isMeasuringMode);
   const isSelectionMode = useStore((s) => s.isSelectionMode);
+  const setIsSelectionMode = useStore((s) => s.setIsSelectionMode);
+  const isEraserMode = useStore((s) => s.isEraserMode);
+  const setIsEraserMode = useStore((s) => s.setIsEraserMode);
   const measurePoints = useStore((s) => s.measurePoints);
   const isDrawingLineMode = useStore((s) => s.isDrawingLineMode);
   const isAddingTextMode = useStore((s) => s.isAddingTextMode);
@@ -242,6 +245,7 @@ export const MapContainer: React.FC = () => {
     isContinuousAddMode,
     isMeasuringMode,
     isSelectionMode,
+    isEraserMode,
     measurePoints,
     isDrawingLineMode,
     isAddingTextMode,
@@ -257,6 +261,7 @@ export const MapContainer: React.FC = () => {
       isContinuousAddMode,
       isMeasuringMode,
       isSelectionMode,
+      isEraserMode,
       measurePoints,
       isDrawingLineMode,
       isAddingTextMode,
@@ -265,7 +270,7 @@ export const MapContainer: React.FC = () => {
       language,
       isAr,
     };
-  }, [isAddingPointMode, isContinuousAddMode, isMeasuringMode, isSelectionMode, measurePoints, isDrawingLineMode, isAddingTextMode, manualZoneOverride, points, language, isAr]);
+  }, [isAddingPointMode, isContinuousAddMode, isMeasuringMode, isSelectionMode, isEraserMode, measurePoints, isDrawingLineMode, isAddingTextMode, manualZoneOverride, points, language, isAr]);
 
   const handleLocateUser = () => {
     if (!navigator.geolocation) {
@@ -692,7 +697,7 @@ export const MapContainer: React.FC = () => {
           useStore.getState().setSelectedPointIdsForAction(selectedIds);
           useStore.getState().setActiveModal('batch_category');
         } else {
-          useStore.getState().showToast(stateRef.current.isAr ? 'لم يتم تحديد أي نقاط' : 'No points selected', 'warning');
+          useStore.getState().showToast(stateRef.current.isAr ? 'لم يتم تحديد أي نقاط داخل المربع' : 'No points selected inside box', 'warning');
         }
 
         // Clean up UI
@@ -719,6 +724,38 @@ export const MapContainer: React.FC = () => {
       map.getContainer().style.cursor = '';
     }
   }, [isSelectionMode]);
+
+  // Quick Eraser Mode & Keyboard Esc effect
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (isEraserMode) {
+      map.getContainer().style.cursor = 'crosshair';
+    } else if (!isSelectionMode) {
+      map.getContainer().style.cursor = '';
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        const st = useStore.getState();
+        if (st.isEraserMode) st.setIsEraserMode(false);
+        if (st.isSelectionMode) st.setIsSelectionMode(false);
+        if (st.isMeasuringMode) st.setIsMeasuringMode(false);
+        if (st.isAddingPointMode) st.setIsAddingPointMode(false);
+        if (st.isDrawingLineMode) st.setIsDrawingLineMode(false);
+        if (st.isAddingTextMode) st.setIsAddingTextMode(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (mapInstanceRef.current && !isSelectionMode) {
+        mapInstanceRef.current.getContainer().style.cursor = '';
+      }
+    };
+  }, [isEraserMode, isSelectionMode]);
 
   // 5. Sync Markers on Map
   useEffect(() => {
@@ -828,12 +865,40 @@ export const MapContainer: React.FC = () => {
           }
         });
 
-        // Click marker -> select & handle measuring mode
+        // Click marker -> select & handle measuring mode & eraser mode
         marker.on('click', (e: any) => {
           L.DomEvent.stopPropagation(e);
-          setSelectedPointId(pt.id);
 
           const st = useStore.getState();
+
+          // 1. Quick Eraser Mode
+          if (st.isEraserMode) {
+            if (pt.isLocked && !st.eraserDeleteLockedPoints) {
+              st.showToast(
+                st.language === 'ar'
+                  ? `النقطة "${pt.name}" مقفلة ومحمية 🔒 - يمكنك تفعيل السماح بحذف النقاط المقفولة من خيارات الممحاة`
+                  : `Point "${pt.name}" is locked 🔒 - enable locked points deletion option in eraser settings`,
+                'warning'
+              );
+            } else {
+              st.deletePoint(pt.id, st.eraserDeleteLockedPoints);
+            }
+            return;
+          }
+
+          // 2. Selection Mode Click
+          if (st.isSelectionMode) {
+            const currentSelected = st.selectedPointIdsForAction;
+            const isAlreadySelected = currentSelected.includes(pt.id);
+            const next = isAlreadySelected
+              ? currentSelected.filter((id) => id !== pt.id)
+              : [...currentSelected, pt.id];
+            st.setSelectedPointIdsForAction(next);
+            return;
+          }
+
+          setSelectedPointId(pt.id);
+
           if (st.isMeasuringMode) {
             st.addMeasurePoint({
               id: `m_${pt.id}`,
@@ -1385,6 +1450,56 @@ export const MapContainer: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Quick Eraser Mode Active HUD Notification */}
+      {isEraserMode && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-rose-950/95 text-rose-100 border border-rose-500/60 backdrop-blur-md px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top duration-200">
+          <div className="w-8 h-8 rounded-xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center shrink-0">
+            <Eraser className="w-4 h-4 text-rose-400 animate-pulse" />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-xs md:text-sm font-bold text-rose-100">
+              {isAr ? 'وضع الممحاة (انقر واحذف) نشط' : 'Quick Click-to-Delete Active'}
+            </span>
+            <span className="text-[10px] md:text-xs text-rose-300">
+              {isAr
+                ? 'انقر على أي نقطة في الخريطة لحذفها فوراً'
+                : 'Click any point on the map to delete it immediately'}
+            </span>
+          </div>
+          <button
+            onClick={() => setIsEraserMode(false)}
+            className="ml-2 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95"
+          >
+            {isAr ? 'إنهاء (ESC)' : 'Exit (ESC)'}
+          </button>
+        </div>
+      )}
+
+      {/* Box Selection & Delete Active HUD Notification */}
+      {isSelectionMode && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-indigo-950/95 text-indigo-100 border border-indigo-500/60 backdrop-blur-md px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top duration-200">
+          <div className="w-8 h-8 rounded-xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center shrink-0">
+            <BoxSelect className="w-4 h-4 text-indigo-400 animate-pulse" />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-xs md:text-sm font-bold text-indigo-100">
+              {isAr ? 'وضع التحديد بالماوس (حدّد واحذف) نشط' : 'Box Select & Delete Active'}
+            </span>
+            <span className="text-[10px] md:text-xs text-indigo-300">
+              {isAr
+                ? 'اسحب بالماوس لتحديد مجموعة نقاط ثم حذفها أو نقلها'
+                : 'Click & drag mouse box to select and delete points group'}
+            </span>
+          </div>
+          <button
+            onClick={() => setIsSelectionMode(false)}
+            className="ml-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95"
+          >
+            {isAr ? 'إنهاء (ESC)' : 'Exit (ESC)'}
+          </button>
+        </div>
+      )}
       
       <AnnotationToolbar />
       

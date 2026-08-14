@@ -240,8 +240,11 @@ export async function parseExcelToPoints(file: File): Promise<SurveyPoint[]> {
 
           const name = getValue('اسم', 'name', 'label', 'نقطة') || `نقطة مستوردة ${idx + 1}`;
           const description = getValue('وصف', 'desc', 'notes', 'بيانات', 'تفاصيل') || '';
-          const categoryStr = getValue('تصنيف', 'category', 'type', 'نوع') || 'other';
-          const category = parseCategoryLabel(String(categoryStr));
+          const categoryRaw = getValue('مجلد', 'المجلد', 'تصنيف', 'التصنيف', 'category', 'folder', 'layer', 'group', 'type', 'نوع');
+          const categoryStr = categoryRaw ? String(categoryRaw).trim() : '';
+          const category = (categoryStr && !['other', 'Other', 'OTHER', 'أخرى', 'عام', 'General', 'general'].includes(categoryStr))
+            ? categoryStr
+            : undefined;
 
           // Look for UTM values
           let easting = parseFloat(getValue('easting', 'شرقي', 'الشرقي', 'x') || 0);

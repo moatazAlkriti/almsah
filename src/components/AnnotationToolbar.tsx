@@ -1,7 +1,7 @@
 import React from 'react';
 import { useStore } from '../store/useStore';
 import { getTranslation } from '../utils/translations';
-import { PenTool, Type, Plus, Ruler, MousePointer2, ArrowLeftRight, Compass, Route, BoxSelect } from 'lucide-react';
+import { PenTool, Type, Plus, Ruler, MousePointer2, ArrowLeftRight, Compass, Route, BoxSelect, Eraser, Trash2 } from 'lucide-react';
 
 export const AnnotationToolbar: React.FC = () => {
   const language = useStore((s) => s.language);
@@ -18,6 +18,9 @@ export const AnnotationToolbar: React.FC = () => {
   const setIsMeasuringMode = useStore((s) => s.setIsMeasuringMode);
   const isSelectionMode = useStore((s) => s.isSelectionMode);
   const setIsSelectionMode = useStore((s) => s.setIsSelectionMode);
+  const isEraserMode = useStore((s) => s.isEraserMode);
+  const setIsEraserMode = useStore((s) => s.setIsEraserMode);
+  const setIsEraserChoiceModalOpen = useStore((s) => s.setIsEraserChoiceModalOpen);
 
   const activeModal = useStore((s) => s.activeModal);
   const setActiveModal = useStore((s) => s.setActiveModal);
@@ -29,9 +32,22 @@ export const AnnotationToolbar: React.FC = () => {
     setIsAddingPointMode(false);
     setIsMeasuringMode(false);
     setIsSelectionMode(false);
+    setIsEraserMode(false);
   };
 
-  const activeMode = isDrawingLineMode ? 'line' : isAddingTextMode ? 'text' : isAddingPointMode ? 'point' : isMeasuringMode ? 'measure' : isSelectionMode ? 'selection' : 'none';
+  const activeMode = isDrawingLineMode
+    ? 'line'
+    : isAddingTextMode
+    ? 'text'
+    : isAddingPointMode
+    ? 'point'
+    : isMeasuringMode
+    ? 'measure'
+    : isSelectionMode
+    ? 'selection'
+    : isEraserMode
+    ? 'eraser'
+    : 'none';
 
   return (
     <div
@@ -64,14 +80,21 @@ export const AnnotationToolbar: React.FC = () => {
         </span>
       </button>
 
-      {/* Box Selection Tool */}
+      {/* Windows Mouse Box Select & Move to Folder Tool */}
       <button
-        onClick={() => setIsSelectionMode(!isSelectionMode)}
+        onClick={() => {
+          if (isSelectionMode) {
+            resetModes();
+          } else {
+            resetModes();
+            setIsSelectionMode(true);
+          }
+        }}
         className={`group relative flex ${
           isAr ? 'flex-row-reverse' : 'flex-row'
         } items-center h-12 rounded-2xl shadow-xl transition-all duration-300 ease-out cursor-pointer overflow-hidden ${
           isSelectionMode
-            ? 'bg-indigo-500 text-white ring-2 ring-indigo-400/80 shadow-indigo-500/30'
+            ? 'bg-indigo-600 text-white ring-2 ring-indigo-400 shadow-indigo-600/40 animate-pulse'
             : 'bg-slate-900/90 text-slate-300 hover:bg-slate-800 hover:text-indigo-400 backdrop-blur-md border border-slate-700/60'
         }`}
       >
@@ -84,7 +107,49 @@ export const AnnotationToolbar: React.FC = () => {
             isAr ? 'group-hover:pl-3.5 group-hover:pr-1' : 'group-hover:pr-3.5 group-hover:pl-1'
           } text-xs font-bold whitespace-nowrap transition-all duration-300 ease-out`}
         >
-          {isAr ? 'تحديد مربع للنقاط' : 'Box Select Points'}
+          {isSelectionMode
+            ? isAr
+              ? 'تحديد وسحب ماوس نشط'
+              : 'Box Select Active'
+            : isAr
+            ? 'تحديد ونقل لمجلد (مربع ماوس)'
+            : 'Box Select & Move to Folder'}
+        </span>
+      </button>
+
+      {/* Eraser Tool Button - Directly Opens Eraser Choice Modal */}
+      <button
+        onClick={() => {
+          if (isEraserMode) {
+            resetModes();
+          } else {
+            setIsEraserChoiceModalOpen(true);
+          }
+        }}
+        className={`group relative flex ${
+          isAr ? 'flex-row-reverse' : 'flex-row'
+        } items-center h-12 rounded-2xl shadow-xl transition-all duration-300 ease-out cursor-pointer overflow-hidden ${
+          isEraserMode
+            ? 'bg-rose-600 text-white ring-2 ring-rose-400 shadow-rose-600/40 animate-pulse'
+            : 'bg-slate-900/90 text-slate-300 hover:bg-slate-800 hover:text-rose-400 backdrop-blur-md border border-slate-700/60'
+        }`}
+      >
+        <div className="w-12 h-12 flex items-center justify-center shrink-0">
+          <Eraser className="w-5 h-5 transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-12" />
+        </div>
+        <span
+          dir={isAr ? 'rtl' : 'ltr'}
+          className={`max-w-0 opacity-0 group-hover:max-w-xs group-hover:opacity-100 ${
+            isAr ? 'group-hover:pl-3.5 group-hover:pr-1' : 'group-hover:pr-3.5 group-hover:pl-1'
+          } text-xs font-bold whitespace-nowrap transition-all duration-300 ease-out`}
+        >
+          {isEraserMode
+            ? isAr
+              ? 'الممحاة نشطة (انقر واحذف)'
+              : 'Click Eraser Active'
+            : isAr
+            ? 'أداة الممحاة والحذف'
+            : 'Eraser & Deletion Tool'}
         </span>
       </button>
 

@@ -82,6 +82,11 @@ interface AppState {
   isContinuousAddMode: boolean;
   isMeasuringMode: boolean;
   isSelectionMode: boolean;
+  isEraserMode: boolean;
+  isEraserChoiceModalOpen: boolean;
+  eraserDeleteLockedPoints: boolean;
+  setIsEraserChoiceModalOpen: (open: boolean) => void;
+  setEraserDeleteLockedPoints: (allow: boolean) => void;
   measurePoints: MeasurePoint[];
   selectedPointIdsForAction: string[];
 
@@ -102,6 +107,7 @@ interface AppState {
     | 'import_excel'
     | 'batch_zone'
     | 'batch_category'
+    | 'batch_delete'
     | 'export_excel'
     | 'export_preview'
     | 'import_options'
@@ -128,7 +134,7 @@ interface AppState {
   // Actions
   addPoint: (pointData: Omit<SurveyPoint, 'id' | 'timestamp'>) => void;
   updatePoint: (id: string, updates: Partial<SurveyPoint>) => void;
-  deletePoint: (id: string) => void;
+  deletePoint: (id: string, forceDeleteLocked?: boolean) => void;
   movePoint: (id: string, newLat: number, newLng: number) => void;
   togglePointLock: (id: string) => void;
   lockAllPoints: (scope?: 'all' | 'uncategorized' | string) => void;
@@ -160,7 +166,9 @@ interface AppState {
   setIsContinuousAddMode: (active: boolean) => void;
   setIsMeasuringMode: (active: boolean) => void;
   setIsSelectionMode: (active: boolean) => void;
+  setIsEraserMode: (active: boolean) => void;
   setSelectedPointIdsForAction: (ids: string[]) => void;
+  batchDeletePoints: (ids: string[], forceDeleteLocked?: boolean) => { deletedCount: number; lockedSkipped: number };
   addMeasurePoint: (pt: MeasurePoint) => void;
   clearMeasurePoints: () => void;
 
@@ -180,8 +188,8 @@ interface AppState {
   setMovingAnnotationId: (id: string | null) => void;
 
   // Project Import/Export Actions
-  replaceProjectData: (points: SurveyPoint[], annotations: Annotation[], settings?: any) => void;
-  mergeProjectData: (points: SurveyPoint[], annotations: Annotation[]) => void;
+  replaceProjectData: (points: SurveyPoint[], annotations: Annotation[], settings?: any, categories?: string[]) => void;
+  mergeProjectData: (points: SurveyPoint[], annotations: Annotation[], categories?: string[]) => void;
 
   setExportSettings: (settings: ExportSettings) => void;
 
@@ -192,6 +200,7 @@ interface AppState {
       | 'import_excel'
       | 'batch_zone'
       | 'batch_category'
+      | 'batch_delete'
       | 'export_excel'
       | 'export_preview'
       | 'import_options'
@@ -261,6 +270,11 @@ export const useStore = create<AppState>()(
       isContinuousAddMode: false,
       isMeasuringMode: false,
       isSelectionMode: false,
+      isEraserMode: false,
+      isEraserChoiceModalOpen: false,
+      eraserDeleteLockedPoints: false,
+      setIsEraserChoiceModalOpen: (open) => set({ isEraserChoiceModalOpen: open }),
+      setEraserDeleteLockedPoints: (allow) => set({ eraserDeleteLockedPoints: allow }),
       measurePoints: [],
       selectedPointIdsForAction: [],
 
@@ -526,9 +540,10 @@ export const useStore = create<AppState>()(
         );
       },
 
-      deletePoint: (id) => {
+      deletePoint: (id, forceDeleteLocked = false) => {
         const targetPt = get().points.find((p) => p.id === id);
-        if (targetPt?.isLocked) {
+        const allowLocked = forceDeleteLocked || get().eraserDeleteLockedPoints;
+        if (targetPt?.isLocked && !allowLocked) {
           get().showToast(
             get().language === 'ar'
               ? 'لا يمكن حذف نقطة مقفلة! قم بفك القفل أولاً'
@@ -707,6 +722,7 @@ export const useStore = create<AppState>()(
           isDrawingLineMode: false,
           isAddingTextMode: false,
           isSelectionMode: false,
+          isEraserMode: false,
           drawingLinePoints: [],
         })),
 
@@ -718,6 +734,7 @@ export const useStore = create<AppState>()(
           isDrawingLineMode: false,
           isAddingTextMode: false,
           isSelectionMode: false,
+          isEraserMode: false,
           drawingLinePoints: [],
         }),
 
@@ -729,6 +746,7 @@ export const useStore = create<AppState>()(
           isDrawingLineMode: false,
           isAddingTextMode: false,
           isSelectionMode: false,
+          isEraserMode: false,
           drawingLinePoints: [],
         }),
 
@@ -740,11 +758,70 @@ export const useStore = create<AppState>()(
           isContinuousAddMode: false,
           isDrawingLineMode: false,
           isAddingTextMode: false,
+          isEraserMode: false,
           drawingLinePoints: [],
           selectedPointIdsForAction: active ? [] : state.selectedPointIdsForAction,
         })),
 
+      setIsEraserMode: (active) =>
+        set({
+          isEraserMode: active,
+          isSelectionMode: false,
+          isMeasuringMode: false,
+          isAddingPointMode: false,
+          isContinuousAddMode: false,
+          isDrawingLineMode: false,
+          isAddingTextMode: false,
+          drawingLinePoints: [],
+        }),
+
       setSelectedPointIdsForAction: (ids) => set({ selectedPointIdsForAction: ids }),
+
+      batchDeletePoints: (ids, forceDeleteLocked = false) => {
+        const isAr = get().language === 'ar';
+        const targetIds = new Set(ids);
+        const currentPoints = get().points;
+        const allowLocked = forceDeleteLocked || get().eraserDeleteLockedPoints;
+
+        let deletedCount = 0;
+        let lockedSkipped = 0;
+
+        const remainingPoints = currentPoints.filter((pt) => {
+          if (targetIds.has(pt.id)) {
+            if (pt.isLocked && !allowLocked) {
+              lockedSkipped++;
+              return true; // Keep locked point
+            }
+            deletedCount++;
+            return false; // Remove point
+          }
+          return true;
+        });
+
+        set((state) => ({
+          points: remainingPoints,
+          selectedPointId: state.selectedPointId && targetIds.has(state.selectedPointId) ? null : state.selectedPointId,
+          selectedPointIdsForAction: state.selectedPointIdsForAction.filter((id) => !targetIds.has(id)),
+        }));
+
+        if (deletedCount > 0) {
+          get().showToast(
+            isAr
+              ? `تم حذف ${deletedCount} نقطة بنجاح 🗑️${lockedSkipped > 0 ? ` (تم تخطي ${lockedSkipped} نقطة مقفلة 🔒)` : ''}`
+              : `Deleted ${deletedCount} points 🗑️${lockedSkipped > 0 ? ` (Skipped ${lockedSkipped} locked 🔒)` : ''}`,
+            deletedCount > 0 ? 'success' : 'warning'
+          );
+        } else if (lockedSkipped > 0) {
+          get().showToast(
+            isAr
+              ? `لم يتم حذف أي نقطة لأن جميعها (${lockedSkipped}) مقفلة ومحمية 🔒`
+              : `No points deleted because all (${lockedSkipped}) are locked 🔒`,
+            'error'
+          );
+        }
+
+        return { deletedCount, lockedSkipped };
+      },
 
       addMeasurePoint: (pt) => set((state) => ({ measurePoints: [...state.measurePoints, pt] })),
       clearMeasurePoints: () => set({ measurePoints: [] }),
@@ -759,14 +836,25 @@ export const useStore = create<AppState>()(
         );
       },
 
-      replaceProjectData: (points, annotations, settings) => {
-        const importedCats = Array.from(new Set(points.map((p) => p.category).filter(Boolean))) as string[];
+      replaceProjectData: (points, annotations, settings, categories) => {
+        const importedCats = Array.from(
+          new Set([
+            ...(categories || []),
+            ...points
+              .map((p) => (p.category || '').trim())
+              .filter(
+                (c) =>
+                  c !== '' &&
+                  !['other', 'Other', 'OTHER', 'أخرى', 'عام', 'General', 'general'].includes(c)
+              ),
+          ])
+        );
         set((state) => ({
           points,
           annotations,
           selectedPointId: null,
           selectedAnnotationId: null,
-          categories: Array.from(new Set([...state.categories, ...importedCats])),
+          categories: importedCats,
           activeTileLayer: settings?.activeTileLayer ?? state.activeTileLayer,
           manualZoneOverride: settings?.manualZoneOverride !== undefined ? settings.manualZoneOverride : state.manualZoneOverride,
           autoFetchElevation: settings?.autoFetchElevation ?? state.autoFetchElevation,
@@ -779,7 +867,7 @@ export const useStore = create<AppState>()(
         }));
       },
 
-      mergeProjectData: (points, annotations) => {
+      mergeProjectData: (points, annotations, categories) => {
         set((state) => {
           const existingIds = new Set(state.points.map((p) => p.id));
           const existingCoordsKeys = new Set(state.points.map((p) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`));
@@ -793,7 +881,18 @@ export const useStore = create<AppState>()(
           const existingAnnIds = new Set(state.annotations.map((a) => a.id));
           const filteredAnnotations = annotations.filter((a) => !existingAnnIds.has(a.id));
 
-          const importedCats = Array.from(new Set(points.map((p) => p.category).filter(Boolean))) as string[];
+          const importedCats = Array.from(
+            new Set([
+              ...(categories || []),
+              ...points
+                .map((p) => (p.category || '').trim())
+                .filter(
+                  (c) =>
+                    c !== '' &&
+                    !['other', 'Other', 'OTHER', 'أخرى', 'عام', 'General', 'general'].includes(c)
+                ),
+            ])
+          );
 
           return {
             points: [...state.points, ...filteredPoints],

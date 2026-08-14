@@ -83,7 +83,8 @@ export const ExportPreviewModal: React.FC = () => {
           pointLabelPosition,
           showPointLabels,
         };
-        const backup = exportFullBackup(points, annotations, settings, language);
+        const categories = useStore.getState().categories;
+        const backup = exportFullBackup(points, annotations, settings, language, categories);
         const jsonStr = JSON.stringify(backup, null, 2);
         const fileName = `Almussah_Backup_${year}-${month}-${day}_${hours}-${mins}.json`;
         triggerFileDownload(jsonStr, fileName, 'application/json;charset=utf-8;');

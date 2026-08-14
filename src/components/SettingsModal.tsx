@@ -28,6 +28,7 @@ import {
   ArrowRight,
   ArrowLeft,
   Palette,
+  Trash2,
 } from 'lucide-react';
 import { Hemisphere, PinStyle, PointLabelPosition } from '../types';
 
@@ -113,13 +114,13 @@ export const SettingsModal: React.FC = () => {
         {/* Content */}
         <div className="p-6 space-y-6">
           {/* Quick Tools Shortcuts */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
             <button
               onClick={() => setActiveModal('converter')}
-              className="p-3.5 bg-slate-950/80 border border-slate-800 hover:border-emerald-500/50 rounded-2xl flex flex-col gap-2 text-right transition-all group hover:bg-slate-900/80"
+              className="p-3 bg-slate-950/80 border border-slate-800 hover:border-emerald-500/50 rounded-2xl flex flex-col gap-1.5 text-right transition-all group hover:bg-slate-900/80"
             >
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/30 group-hover:scale-110 transition-transform">
-                <ArrowLeftRight className="w-4 h-4" />
+              <div className="w-7 h-7 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/30 group-hover:scale-110 transition-transform">
+                <ArrowLeftRight className="w-3.5 h-3.5" />
               </div>
               <div>
                 <h4 className="font-bold text-slate-200 text-xs group-hover:text-emerald-400 transition-colors">
@@ -131,10 +132,10 @@ export const SettingsModal: React.FC = () => {
 
             <button
               onClick={() => setActiveModal('two_point_measure')}
-              className="p-3.5 bg-slate-950/80 border border-slate-800 hover:border-amber-500/50 rounded-2xl flex flex-col gap-2 text-right transition-all group hover:bg-slate-900/80"
+              className="p-3 bg-slate-950/80 border border-slate-800 hover:border-amber-500/50 rounded-2xl flex flex-col gap-1.5 text-right transition-all group hover:bg-slate-900/80"
             >
-              <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center border border-amber-500/30 group-hover:scale-110 transition-transform">
-                <Ruler className="w-4 h-4" />
+              <div className="w-7 h-7 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center border border-amber-500/30 group-hover:scale-110 transition-transform">
+                <Ruler className="w-3.5 h-3.5" />
               </div>
               <div>
                 <h4 className="font-bold text-slate-200 text-xs group-hover:text-amber-400 transition-colors">
@@ -142,6 +143,23 @@ export const SettingsModal: React.FC = () => {
                 </h4>
                 <p className="text-[10px] text-slate-400">
                   {isAr ? 'مسافة، انحراف وزوايا' : 'Distance, bearing & delta'}
+                </p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setActiveModal('batch_delete')}
+              className="p-3 bg-slate-950/80 border border-slate-800 hover:border-rose-500/50 rounded-2xl flex flex-col gap-1.5 text-right transition-all group hover:bg-slate-900/80 col-span-2 sm:col-span-1"
+            >
+              <div className="w-7 h-7 rounded-xl bg-rose-500/15 text-rose-400 flex items-center justify-center border border-rose-500/30 group-hover:scale-110 transition-transform">
+                <Trash2 className="w-3.5 h-3.5" />
+              </div>
+              <div>
+                <h4 className="font-bold text-slate-200 text-xs group-hover:text-rose-400 transition-colors">
+                  {isAr ? 'الحذف المتقدم (بالنطاق)' : 'Advanced Batch Delete'}
+                </h4>
+                <p className="text-[10px] text-slate-400">
+                  {isAr ? 'حذف بالمتسلسلة والنطاق' : 'Delete by range & sequence'}
                 </p>
               </div>
             </button>

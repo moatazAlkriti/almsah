@@ -1,4 +1,4 @@
-import { SurveyPoint, Annotation, AnnotationLine, AnnotationText, Language, TileLayerType } from '../types';
+import { SurveyPoint, Annotation, AnnotationLine, AnnotationText, Language, TileLayerType, PinStyle, PointLabelPosition } from '../types';
 import { latLngToUTM } from './utm';
 
 export interface FullBackup {
@@ -9,12 +9,18 @@ export interface FullBackup {
   data: {
     points: SurveyPoint[];
     annotations: Annotation[];
+    categories?: string[];
     settings: {
       activeTileLayer: TileLayerType;
       manualZoneOverride: number | null;
       isSnappingEnabled: boolean;
       isContinuousAddMode: boolean;
       autoFetchElevation: boolean;
+      pinStyle?: PinStyle;
+      pinSize?: number;
+      pointLabelSize?: number;
+      pointLabelPosition?: PointLabelPosition;
+      showPointLabels?: boolean;
     };
   };
 }
@@ -58,6 +64,44 @@ export function triggerFileDownload(content: string, fileName: string, contentTy
 }
 
 /**
+ * Helper to reliably extract folder / category name from any standard GIS properties
+ */
+export function extractPointCategory(props: Record<string, any>): string | undefined {
+  if (!props || typeof props !== 'object') return undefined;
+
+  const candidateKeys = [
+    'category', 'Category', 'CATEGORY',
+    'folder', 'Folder', 'FOLDER',
+    'folderName', 'folder_name', 'FolderName', 'FOLDER_NAME', 'folder_Name',
+    'layer', 'Layer', 'LAYER',
+    'layerName', 'layer_name', 'LayerName', 'LAYER_NAME',
+    'group', 'Group', 'GROUP',
+    'groupName', 'group_name', 'GroupName',
+    'directory', 'Directory',
+    'classification', 'Classification',
+    'type', 'Type',
+    'collection', 'Collection',
+    'tag', 'Tag',
+  ];
+
+  for (const key of candidateKeys) {
+    const val = props[key];
+    if (val !== undefined && val !== null) {
+      const strVal = String(val).trim();
+      // Only treat as a folder/category if it's not empty and not generic placeholder
+      if (
+        strVal &&
+        !['other', 'Other', 'OTHER', 'أخرى', 'عام', 'General', 'general', 'undefined', 'null', '[object Object]'].includes(strVal)
+      ) {
+        return strVal;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * 2) Export to GeoJSON
  */
 export function exportToGeoJSON(points: SurveyPoint[], annotations: Annotation[]): GeoJSONFeatureCollection {
@@ -65,6 +109,7 @@ export function exportToGeoJSON(points: SurveyPoint[], annotations: Annotation[]
 
   // 1. Survey Points
   points.forEach((p) => {
+    const categoryName = (p.category || '').trim();
     features.push({
       type: 'Feature',
       geometry: {
@@ -76,7 +121,11 @@ export function exportToGeoJSON(points: SurveyPoint[], annotations: Annotation[]
         id: p.id,
         name: p.name,
         description: p.description || '',
-        category: p.category || 'other',
+        category: categoryName || undefined,
+        folder: categoryName || undefined,
+        folderName: categoryName || undefined,
+        layer: categoryName || undefined,
+        group: categoryName || undefined,
         elevation: p.elevation !== undefined ? p.elevation : null,
         color: p.color || '#10b981',
         isLocked: !!p.isLocked,
@@ -186,9 +235,28 @@ export function exportFullBackup(
     isSnappingEnabled: boolean;
     isContinuousAddMode: boolean;
     autoFetchElevation: boolean;
+    pinStyle?: PinStyle;
+    pinSize?: number;
+    pointLabelSize?: number;
+    pointLabelPosition?: PointLabelPosition;
+    showPointLabels?: boolean;
   },
-  language: Language
+  language: Language,
+  categories?: string[]
 ): FullBackup {
+  const allCategories = Array.from(
+    new Set([
+      ...(categories || []),
+      ...points
+        .map((p) => (p.category || '').trim())
+        .filter(
+          (c) =>
+            c !== '' &&
+            !['other', 'Other', 'OTHER', 'أخرى', 'عام', 'General', 'general'].includes(c)
+        ),
+    ])
+  );
+
   return {
     version: '1.0',
     app: 'Almussah',
@@ -197,6 +265,7 @@ export function exportFullBackup(
     data: {
       points,
       annotations,
+      categories: allCategories,
       settings,
     },
   };
@@ -275,10 +344,12 @@ export async function parseGeoJSONFile(file: File): Promise<GeoJSONFeatureCollec
 export function processImportedGeoJSON(geojson: GeoJSONFeatureCollection, existingPoints: SurveyPoint[]): ImportResult & {
   points: SurveyPoint[];
   annotations: Annotation[];
+  categories: string[];
 } {
   const points: SurveyPoint[] = [];
   const annotations: Annotation[] = [];
   const warnings: string[] = [];
+  const categorySet = new Set<string>();
   let pointsCount = 0;
   let linesCount = 0;
   let labelsCount = 0;
@@ -344,6 +415,12 @@ export function processImportedGeoJSON(geojson: GeoJSONFeatureCollection, existi
 
         const finalId = existingIds.has(id) ? `pt_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}` : id;
 
+        // Extract folder / category properly
+        const category = extractPointCategory(props);
+        if (category) {
+          categorySet.add(category);
+        }
+
         points.push({
           id: finalId,
           name,
@@ -351,7 +428,7 @@ export function processImportedGeoJSON(geojson: GeoJSONFeatureCollection, existi
           utm,
           lat,
           lng,
-          category: props.category || 'other',
+          category: category || undefined,
           elevation: props.elevation !== undefined && props.elevation !== null ? Number(props.elevation) : undefined,
           color: props.color || '#10b981',
           isLocked: !!props.isLocked,
@@ -419,6 +496,7 @@ export function processImportedGeoJSON(geojson: GeoJSONFeatureCollection, existi
   return {
     points,
     annotations,
+    categories: Array.from(categorySet),
     pointsCount,
     linesCount,
     labelsCount,

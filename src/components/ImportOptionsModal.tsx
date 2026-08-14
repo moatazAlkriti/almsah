@@ -34,10 +34,11 @@ export const ImportOptionsModal: React.FC = () => {
           replaceProjectData(
             backup.data.points,
             backup.data.annotations,
-            importSettings ? backup.data.settings : undefined
+            importSettings ? backup.data.settings : undefined,
+            backup.data.categories
           );
         } else {
-          mergeProjectData(backup.data.points, backup.data.annotations);
+          mergeProjectData(backup.data.points, backup.data.annotations, backup.data.categories);
         }
 
         const lines = backup.data.annotations.filter((a) => a.type === 'line').length;
@@ -57,9 +58,9 @@ export const ImportOptionsModal: React.FC = () => {
         const processed = processImportedGeoJSON(geojson, importMode === 'merge' ? points : []);
 
         if (importMode === 'replace') {
-          replaceProjectData(processed.points, processed.annotations);
+          replaceProjectData(processed.points, processed.annotations, undefined, processed.categories);
         } else {
-          mergeProjectData(processed.points, processed.annotations);
+          mergeProjectData(processed.points, processed.annotations, processed.categories);
         }
 
         setImportResult({
