@@ -66,12 +66,22 @@ export const ExportPreviewModal: React.FC = () => {
         const fileName = `Almussah_Project_${year}-${month}-${day}_${hours}-${mins}.geojson`;
         triggerFileDownload(jsonStr, fileName, 'application/geo+json;charset=utf-8;');
       } else if (exportFormat === 'backup') {
+        const pinStyle = useStore.getState().pinStyle;
+        const pinSize = useStore.getState().pinSize;
+        const pointLabelSize = useStore.getState().pointLabelSize;
+        const pointLabelPosition = useStore.getState().pointLabelPosition;
+        const showPointLabels = useStore.getState().showPointLabels;
         const settings = {
           activeTileLayer,
           manualZoneOverride,
           isSnappingEnabled: true,
           isContinuousAddMode,
           autoFetchElevation,
+          pinStyle,
+          pinSize,
+          pointLabelSize,
+          pointLabelPosition,
+          showPointLabels,
         };
         const backup = exportFullBackup(points, annotations, settings, language);
         const jsonStr = JSON.stringify(backup, null, 2);

@@ -20,6 +20,8 @@ import {
   AnnotationText,
   AnnotationPoint,
   ImportResult,
+  PinStyle,
+  PointLabelPosition,
 } from '../types';
 import { latLngToUTM, utmToLatLng, calculateHaversineDistance } from '../utils/utm';
 import { fetchElevation } from '../utils/elevation';
@@ -56,6 +58,18 @@ interface AppState {
   searchQuery: string;
   selectedCategoryFilter: string;
   autoFetchElevation: boolean;
+
+  // Pin & Label Customization State
+  pinStyle: PinStyle;
+  pinSize: number;
+  pointLabelSize: number;
+  pointLabelPosition: PointLabelPosition;
+  showPointLabels: boolean;
+  setPinStyle: (style: PinStyle) => void;
+  setPinSize: (size: number) => void;
+  setPointLabelSize: (size: number) => void;
+  setPointLabelPosition: (pos: PointLabelPosition) => void;
+  setShowPointLabels: (show: boolean) => void;
 
   // Two Point Measurement State
   pointAMeasureId: string | null;
@@ -117,6 +131,9 @@ interface AppState {
   deletePoint: (id: string) => void;
   movePoint: (id: string, newLat: number, newLng: number) => void;
   togglePointLock: (id: string) => void;
+  lockAllPoints: (scope?: 'all' | 'uncategorized' | string) => void;
+  unlockAllPoints: (scope?: 'all' | 'uncategorized' | string) => void;
+  toggleFolderLock: (folderName: string) => void;
   revertLastMove: () => void;
   dismissLastMove: () => void;
   clearAllPoints: () => void;
@@ -222,6 +239,18 @@ export const useStore = create<AppState>()(
       categories: [],
       selectedCategoryFilter: 'all',
       autoFetchElevation: true,
+
+      // Google Pin & Label Defaults
+      pinStyle: 'google_pin',
+      pinSize: 34,
+      pointLabelSize: 11,
+      pointLabelPosition: 'bottom',
+      showPointLabels: true,
+      setPinStyle: (style) => set({ pinStyle: style }),
+      setPinSize: (size) => set({ pinSize: Math.max(18, Math.min(70, size)) }),
+      setPointLabelSize: (size) => set({ pointLabelSize: Math.max(8, Math.min(24, size)) }),
+      setPointLabelPosition: (pos) => set({ pointLabelPosition: pos }),
+      setShowPointLabels: (show) => set({ showPointLabels: show }),
 
       pointAMeasureId: null,
       pointBMeasureId: null,
@@ -368,6 +397,132 @@ export const useStore = create<AppState>()(
             ? `${isNowLocked ? 'تم قفل النقطة 🔒' : 'تم إلغاء قفل النقطة 🔓'} (${ptName})`
             : `${isNowLocked ? 'Point locked 🔒' : 'Point unlocked 🔓'} (${ptName})`,
           isNowLocked ? 'warning' : 'info'
+        );
+      },
+
+      lockAllPoints: (scope = 'all') => {
+        let count = 0;
+        const isGeneralScope =
+          scope === 'uncategorized' ||
+          scope === 'عام' ||
+          scope === 'نقاط عامة' ||
+          scope === 'General' ||
+          scope === 'General Points';
+
+        set((state) => ({
+          points: state.points.map((pt) => {
+            const cat = (pt.category || '').trim();
+            let match = false;
+            if (scope === 'all') {
+              match = true;
+            } else if (isGeneralScope) {
+              match = !cat || cat === 'عام' || cat === 'نقاط عامة' || cat === 'General' || cat === 'General Points';
+            } else {
+              match = cat === scope;
+            }
+            if (match && !pt.isLocked) {
+              count++;
+              return { ...pt, isLocked: true };
+            }
+            return pt;
+          }),
+        }));
+
+        const isAr = get().language === 'ar';
+        const label = scope === 'all'
+          ? (isAr ? 'كافة النقاط' : 'All Points')
+          : isGeneralScope
+          ? (isAr ? 'النقاط العامة' : 'General Points')
+          : (isAr ? `نقاط مجلد "${scope}"` : `Folder "${scope}" points`);
+
+        get().showToast(
+          isAr ? `تم قفل ${label} بنجاح 🔒 (${count} نقطة)` : `Locked ${label} 🔒 (${count} points)`,
+          'warning'
+        );
+      },
+
+      unlockAllPoints: (scope = 'all') => {
+        let count = 0;
+        const isGeneralScope =
+          scope === 'uncategorized' ||
+          scope === 'عام' ||
+          scope === 'نقاط عامة' ||
+          scope === 'General' ||
+          scope === 'General Points';
+
+        set((state) => ({
+          points: state.points.map((pt) => {
+            const cat = (pt.category || '').trim();
+            let match = false;
+            if (scope === 'all') {
+              match = true;
+            } else if (isGeneralScope) {
+              match = !cat || cat === 'عام' || cat === 'نقاط عامة' || cat === 'General' || cat === 'General Points';
+            } else {
+              match = cat === scope;
+            }
+            if (match && pt.isLocked) {
+              count++;
+              return { ...pt, isLocked: false };
+            }
+            return pt;
+          }),
+        }));
+
+        const isAr = get().language === 'ar';
+        const label = scope === 'all'
+          ? (isAr ? 'كافة النقاط' : 'All Points')
+          : isGeneralScope
+          ? (isAr ? 'النقاط العامة' : 'General Points')
+          : (isAr ? `نقاط مجلد "${scope}"` : `Folder "${scope}" points`);
+
+        get().showToast(
+          isAr ? `تم فك قفل ${label} بنجاح 🔓 (${count} نقطة)` : `Unlocked ${label} 🔓 (${count} points)`,
+          'success'
+        );
+      },
+
+      toggleFolderLock: (folderName) => {
+        const isAr = get().language === 'ar';
+        const isGeneral =
+          !folderName ||
+          folderName === 'عام' ||
+          folderName === 'نقاط عامة' ||
+          folderName === 'General' ||
+          folderName === 'General Points' ||
+          folderName === (isAr ? 'نقاط عامة' : 'General Points');
+        
+        const targetPts = get().points.filter((pt) => {
+          const cat = (pt.category || '').trim();
+          return isGeneral ? !cat || cat === 'عام' || cat === 'نقاط عامة' || cat === 'General' || cat === 'General Points' || cat === folderName : cat === folderName;
+        });
+
+        if (targetPts.length === 0) {
+          get().showToast(isAr ? 'لا توجد نقاط في هذا المجلد' : 'No points in this folder', 'info');
+          return;
+        }
+
+        const allLocked = targetPts.every((pt) => pt.isLocked);
+        const targetLockState = !allLocked;
+
+        set((state) => ({
+          points: state.points.map((pt) => {
+            const cat = (pt.category || '').trim();
+            const match = isGeneral
+              ? !cat || cat === 'عام' || cat === 'نقاط عامة' || cat === 'General' || cat === 'General Points' || cat === folderName
+              : cat === folderName;
+            if (match) {
+              return { ...pt, isLocked: targetLockState };
+            }
+            return pt;
+          }),
+        }));
+
+        get().showToast(
+          isAr
+            ? `${targetLockState ? 'تم قفل مجلد' : 'تم فك قفل مجلد'} "${folderName}" (${targetPts.length} نقطة) 🔒`
+            : `${targetLockState ? 'Locked folder' : 'Unlocked folder'} "${folderName}" (${targetPts.length} points) 🔒`,
+          targetLockState ? 'warning' : 'success'
         );
       },
 
@@ -616,6 +771,11 @@ export const useStore = create<AppState>()(
           manualZoneOverride: settings?.manualZoneOverride !== undefined ? settings.manualZoneOverride : state.manualZoneOverride,
           autoFetchElevation: settings?.autoFetchElevation ?? state.autoFetchElevation,
           isContinuousAddMode: settings?.isContinuousAddMode ?? state.isContinuousAddMode,
+          pinStyle: settings?.pinStyle ?? state.pinStyle,
+          pinSize: settings?.pinSize ?? state.pinSize,
+          pointLabelSize: settings?.pointLabelSize ?? state.pointLabelSize,
+          pointLabelPosition: settings?.pointLabelPosition ?? state.pointLabelPosition,
+          showPointLabels: settings?.showPointLabels ?? state.showPointLabels,
         }));
       },
 
@@ -738,7 +898,7 @@ export const useStore = create<AppState>()(
     }),
     {
       name: 'utm-gis-surveyor-storage',
-      version: 3,
+      version: 4,
       migrate: (persistedState: any, version: number) => {
         let state = persistedState;
         
@@ -756,6 +916,17 @@ export const useStore = create<AppState>()(
             points: state.points.filter((p: any) => !['sample_01', 'sample_02', 'sample_03'].includes(p.id))
           };
         }
+
+        if (version < 4 || !state || state.pinStyle === undefined) {
+          state = {
+            ...state,
+            pinStyle: state?.pinStyle || 'google_pin',
+            pinSize: state?.pinSize ?? 34,
+            pointLabelSize: state?.pointLabelSize ?? 11,
+            pointLabelPosition: state?.pointLabelPosition || 'bottom',
+            showPointLabels: state?.showPointLabels ?? true,
+          };
+        }
         
         return state;
       },
@@ -769,6 +940,11 @@ export const useStore = create<AppState>()(
         autoFetchElevation: state.autoFetchElevation,
         isContinuousAddMode: state.isContinuousAddMode,
         exportSettings: state.exportSettings,
+        pinStyle: state.pinStyle,
+        pinSize: state.pinSize,
+        pointLabelSize: state.pointLabelSize,
+        pointLabelPosition: state.pointLabelPosition,
+        showPointLabels: state.showPointLabels,
       }),
       storage: createJSONStorage(() => idbStorage),
     }

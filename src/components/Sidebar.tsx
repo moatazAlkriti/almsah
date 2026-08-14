@@ -59,6 +59,7 @@ export const Sidebar: React.FC = () => {
   const addCategory = useStore((s) => s.addCategory);
   const renameCategory = useStore((s) => s.renameCategory);
   const deleteCategory = useStore((s) => s.deleteCategory);
+  const toggleFolderLock = useStore((s) => s.toggleFolderLock);
   const exportSettings = useStore((s) => s.exportSettings);
 
   // Folder & Tree State
@@ -87,8 +88,31 @@ export const Sidebar: React.FC = () => {
   const [isUpdatingElevations, setIsUpdatingElevations] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<{ current: number; total: number } | null>(null);
 
-  // Custom confirmation for Clear All
+  // Custom confirmation for Clear All with 5-second safety countdown lock
   const [isConfirmingClear, setIsConfirmingClear] = useState(false);
+  const [clearCountdown, setClearCountdown] = useState(5);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    if (isConfirmingClear) {
+      setClearCountdown(5);
+      timer = setInterval(() => {
+        setClearCountdown((prev) => {
+          if (prev <= 1) {
+            if (timer) clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      setClearCountdown(5);
+    }
+
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isConfirmingClear]);
 
   // Tabs
   const [activeTab, setActiveTab] = useState<'points' | 'annotations'>('points');
@@ -536,6 +560,43 @@ export const Sidebar: React.FC = () => {
 
                     {/* Folder Quick Actions */}
                     <div className="flex items-center gap-1 opacity-90 group-hover:opacity-100 shrink-0">
+                      {pts.length > 0 && (() => {
+                        const folderLockedCount = pts.filter((p) => p.isLocked).length;
+                        const isFolderAllLocked = folderLockedCount === pts.length;
+                        const isFolderPartiallyLocked = folderLockedCount > 0 && folderLockedCount < pts.length;
+
+                        return (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleFolderLock(folderName);
+                            }}
+                            className={`p-1 rounded transition-colors ${
+                              isFolderAllLocked
+                                ? 'text-amber-400 hover:bg-amber-500/20 bg-amber-500/10'
+                                : isFolderPartiallyLocked
+                                ? 'text-amber-300/80 hover:bg-amber-500/20'
+                                : 'text-slate-400 hover:text-amber-300 hover:bg-slate-800'
+                            }`}
+                            title={
+                              isFolderAllLocked
+                                ? isAr
+                                  ? `فك قفل مجلد (${folderName})`
+                                  : `Unlock folder (${folderName})`
+                                : isAr
+                                ? `قفل كافة نقاط مجلد (${folderName})`
+                                : `Lock all points in folder (${folderName})`
+                            }
+                          >
+                            {isFolderAllLocked ? (
+                              <Lock className="w-3.5 h-3.5 text-amber-400" />
+                            ) : (
+                              <Unlock className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        );
+                      })()}
+
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -617,7 +678,7 @@ export const Sidebar: React.FC = () => {
                                 e.stopPropagation();
                                 setContextMenu({ x: e.clientX, y: e.clientY, pointId: pt.id, folderName });
                               }}
-                              className={`rounded-xl border transition-all cursor-pointer group ${
+                              className={`rounded-xl border transition-all cursor-pointer group point-card-contain ${
                                 draggingPtId === pt.id ? 'opacity-40 border-dashed border-amber-400' : ''
                               } ${
                                 isSelected
@@ -977,38 +1038,100 @@ export const Sidebar: React.FC = () => {
         )}
       </div>
 
-      {/* Footer Clear All Button */}
+      {/* Footer Clear All Button with 5-second Safety Countdown */}
       {((activeTab === 'points' && points.length > 0) || (activeTab === 'annotations' && annotations.length > 0)) && (
-        <div className="p-3 border-t border-slate-800/80 bg-slate-950/60 pb-safe">
+        <div className="p-3 border-t border-slate-800/80 bg-slate-950/80 pb-safe">
           {isConfirmingClear ? (
-            <div className="flex gap-2">
-              <button
-                onClick={() => setIsConfirmingClear(false)}
-                className="flex-1 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-semibold transition-all"
-              >
-                {getTranslation(language, 'cancel')}
-              </button>
-              <button
-                onClick={() => {
-                  if (activeTab === 'points') {
-                    clearAllPoints();
-                  } else {
-                    useStore.getState().clearAllAnnotations();
-                  }
-                  setIsConfirmingClear(false);
-                }}
-                className="flex-1 py-2 rounded-xl bg-rose-500 text-white hover:bg-rose-400 text-xs font-bold shadow-lg shadow-rose-500/20 transition-all"
-              >
-                {isAr ? 'تأكيد المسح' : 'Confirm Clear'}
-              </button>
+            <div className="space-y-2.5 bg-rose-950/40 border border-rose-500/40 rounded-2xl p-3 shadow-xl animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-start gap-2 text-rose-300 text-xs font-semibold leading-relaxed">
+                <Trash2 className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <span>
+                  {isAr
+                    ? activeTab === 'points'
+                      ? '⚠️ تحذير شديد: سيتم مسح كافة نقاط المشروع وبياناته بالكامل نهائياً!'
+                      : '⚠️ تحذير: سيتم مسح كافة الرسومات والخطوط نهائياً!'
+                    : '⚠️ Warning: All project points & data will be permanently wiped!'}
+                </span>
+              </div>
+
+              {/* Countdown Progress Bar */}
+              {clearCountdown > 0 ? (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px] text-rose-400 font-mono">
+                    <span>{isAr ? 'قفل الأمان نشط (انتظر):' : 'Safety lock active (wait):'}</span>
+                    <span className="font-bold bg-rose-500/20 px-1.5 py-0.5 rounded border border-rose-500/30">
+                      {clearCountdown} {isAr ? 'ثوانٍ' : 'sec'}
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-800/90 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="bg-rose-500 h-full transition-all duration-1000 ease-linear rounded-full"
+                      style={{ width: `${((5 - clearCountdown) / 5) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  <span>{isAr ? 'تم إلغاء قفل الأمان - يمكنك التأكيد الآن:' : 'Safety lock released - you may confirm:'}</span>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmingClear(false)}
+                  className="flex-1 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-semibold transition-all border border-slate-700"
+                >
+                  {getTranslation(language, 'cancel')}
+                </button>
+                <button
+                  type="button"
+                  disabled={clearCountdown > 0}
+                  onClick={() => {
+                    if (clearCountdown > 0) return;
+                    if (activeTab === 'points') {
+                      clearAllPoints();
+                    } else {
+                      useStore.getState().clearAllAnnotations();
+                    }
+                    setIsConfirmingClear(false);
+                  }}
+                  className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg ${
+                    clearCountdown > 0
+                      ? 'bg-slate-900 text-slate-500 border border-slate-800 cursor-not-allowed opacity-60'
+                      : 'bg-rose-600 hover:bg-rose-500 text-white border border-rose-400 shadow-rose-600/30 active:scale-95'
+                  }`}
+                >
+                  {clearCountdown > 0 ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-400" />
+                      <span>{isAr ? `انتظر (${clearCountdown}ث)...` : `Wait (${clearCountdown}s)...`}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>{isAr ? 'تأكيد المسح النهائي' : 'Confirm Wipe'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           ) : (
             <button
               onClick={() => setIsConfirmingClear(true)}
-              className="w-full py-2 px-3 rounded-xl border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/60 text-xs font-semibold flex items-center justify-center gap-2 transition-all"
+              className="w-full py-2 px-3 rounded-xl border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/60 text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm"
             >
               <Trash2 className="w-4 h-4" />
-              <span>{getTranslation(language, 'clearAll')}</span>
+              <span>
+                {activeTab === 'points'
+                  ? isAr
+                    ? `مسح جميع النقاط (${points.length})`
+                    : `Clear All Points (${points.length})`
+                  : isAr
+                  ? `مسح جميع الرسومات (${annotations.length})`
+                  : `Clear All Annotations (${annotations.length})`}
+              </span>
             </button>
           )}
         </div>
@@ -1042,6 +1165,17 @@ export const Sidebar: React.FC = () => {
 
             {contextMenu.folderName && (
               <>
+                <button
+                  onClick={() => {
+                    toggleFolderLock(contextMenu.folderName!);
+                    setContextMenu(null);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-slate-800 text-amber-300 font-medium transition-colors"
+                >
+                  <Lock className="w-4 h-4 text-amber-400" />
+                  <span>{isAr ? `قفل / فك قفل نقاط "${contextMenu.folderName}"` : `Lock / Unlock Folder Points`}</span>
+                </button>
+
                 <button
                   onClick={() => {
                     handleExportFolderToExcel(contextMenu.folderName!);

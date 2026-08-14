@@ -128,6 +128,9 @@ export interface AnnotationText {
 
 export type Annotation = AnnotationLine | AnnotationText;
 
+export type PinStyle = 'google_pin' | 'classic_marker' | 'circle_dot';
+export type PointLabelPosition = 'bottom' | 'top' | 'right' | 'left' | 'hidden';
+
 export interface ImportResult {
   pointsCount: number;
   linesCount: number;

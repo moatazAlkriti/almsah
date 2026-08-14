@@ -11,47 +11,125 @@ import { AnnotationToolbar } from './AnnotationToolbar';
 import { LineEditorModal } from './LineEditorModal';
 import { TextEditorModal } from './TextEditorModal';
 
-// Custom SVG DivIcon generator with optional lock icon badge & selection animation
+// Helper to compute realistic 3D shading for any custom point color
+function darkenColor(hex: string, amount: number = 40): string {
+  let c = (hex || '#ea4335').replace('#', '');
+  if (c.length === 3) c = c.split('').map((x) => x + x).join('');
+  const num = parseInt(c, 16);
+  if (isNaN(num)) return '#b91c1c';
+  const r = Math.max(0, (num >> 16) - amount);
+  const g = Math.max(0, ((num >> 8) & 0x00ff) - amount);
+  const b = Math.max(0, (num & 0x0000ff) - amount);
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+}
+
+// Google Map Pushpin & Marker Icon Generator with Full Size & Label Positioning Scaling
 function createCustomMarkerIcon(
-  color: string = '#10b981',
+  color: string = '#ea4335',
   label: string = '',
   isSelected: boolean = false,
-  isLocked: boolean = false
+  isLocked: boolean = false,
+  pinSize: number = 34,
+  labelSize: number = 11,
+  labelPosition: 'bottom' | 'top' | 'right' | 'left' | 'hidden' = 'bottom',
+  showLabels: boolean = true,
+  pinStyle: 'google_pin' | 'classic_marker' | 'circle_dot' = 'google_pin'
 ) {
+  const width = Math.max(18, Math.min(70, pinSize));
+  const height = Math.round(width * 1.375); // 32 to 44 ratio
   const pulseClass = isSelected ? 'animate-bounce' : '';
-  const scale = isSelected ? 'scale-125 z-50' : 'hover:scale-110';
+  const scale = isSelected ? 'scale-110 z-50' : 'hover:scale-105';
 
+  const lockBadgeSize = Math.max(12, Math.round(width * 0.42));
   const lockBadge = isLocked
-    ? `<div class="absolute -top-2 -right-2 bg-amber-500 text-slate-950 p-1 rounded-full shadow-lg border border-amber-300">
-         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    ? `<div class="absolute -top-1 -right-1 bg-amber-500 text-slate-950 rounded-full shadow-lg border border-amber-300 flex items-center justify-center pointer-events-none" style="width: ${lockBadgeSize}px; height: ${lockBadgeSize}px;">
+         <svg width="${Math.round(lockBadgeSize * 0.65)}" height="${Math.round(lockBadgeSize * 0.65)}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
          </svg>
        </div>`
     : '';
 
-  const html = `
-    <div class="relative flex items-center justify-center transition-all duration-200 ${scale} ${pulseClass}">
-      <svg width="32" height="42" viewBox="0 0 32 42" fill="none" xmlns="http://www.w3.org/2000/svg" class="drop-shadow-lg">
+  const darkShade = darkenColor(color, 45);
+  const midShade = darkenColor(color, 15);
+  const uniqueId = Math.random().toString(36).substring(2, 8);
+
+  let pinSvg = '';
+
+  if (pinStyle === 'classic_marker') {
+    pinSvg = `
+      <svg width="${width}" height="${height}" viewBox="0 0 32 42" fill="none" xmlns="http://www.w3.org/2000/svg" class="drop-shadow-lg">
         <path d="M16 0C7.163 0 0 7.163 0 16C0 28 16 42 16 42C16 42 32 28 32 16C32 7.163 24.837 0 16 0Z" fill="${color}" stroke="#ffffff" stroke-width="2"/>
         <circle cx="16" cy="15" r="7" fill="#ffffff"/>
         <circle cx="16" cy="15" r="4" fill="${color}"/>
       </svg>
+    `;
+  } else if (pinStyle === 'circle_dot') {
+    const dotW = Math.round(width * 0.75);
+    pinSvg = `
+      <svg width="${dotW}" height="${dotW}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="drop-shadow-lg">
+        <circle cx="12" cy="12" r="10" fill="${color}" stroke="#ffffff" stroke-width="2.5"/>
+        <circle cx="12" cy="12" r="4" fill="#ffffff"/>
+      </svg>
+    `;
+  } else {
+    // google_pin: Clean, Solid-Colored Elegant Head with Precision Needle Stem
+    pinSvg = `
+      <svg width="${width}" height="${height}" viewBox="0 0 32 44" fill="none" xmlns="http://www.w3.org/2000/svg" class="drop-shadow-md">
+        <defs>
+          <linearGradient id="needle-grad-${uniqueId}" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#475569" />
+            <stop offset="35%" stop-color="#cbd5e1" />
+            <stop offset="70%" stop-color="#94a3b8" />
+            <stop offset="100%" stop-color="#334155" />
+          </linearGradient>
+        </defs>
+        <!-- Precision Needle Stem -->
+        <path d="M 14.3 19 L 17.7 19 L 17.4 39.5 L 16 43.8 L 14.6 39.5 Z" fill="url(#needle-grad-${uniqueId})" />
+        <line x1="16" y1="20" x2="16" y2="43" stroke="#ffffff" stroke-width="0.75" stroke-opacity="0.65" stroke-linecap="round" />
+        
+        <!-- Pushpin Solid Clean Head -->
+        <circle cx="16" cy="13" r="11.5" fill="${color}" stroke="#ffffff" stroke-width="1.75" />
+      </svg>
+    `;
+  }
+
+  // Label Positioning Classes & Offset
+  let labelPosClass = '';
+  if (labelPosition === 'top') {
+    labelPosClass = 'absolute -top-6 left-1/2 -translate-x-1/2';
+  } else if (labelPosition === 'right') {
+    labelPosClass = 'absolute top-1/2 -translate-y-1/2 left-full ml-2';
+  } else if (labelPosition === 'left') {
+    labelPosClass = 'absolute top-1/2 -translate-y-1/2 right-full mr-2';
+  } else if (labelPosition === 'bottom') {
+    labelPosClass = 'absolute -bottom-6 left-1/2 -translate-x-1/2';
+  }
+
+  const labelHtml =
+    showLabels && labelPosition !== 'hidden' && label
+      ? `<span class="${labelPosClass} bg-slate-950/95 text-slate-100 font-bold px-1.5 py-0.5 rounded shadow-lg border border-slate-700/80 whitespace-nowrap font-mono select-none pointer-events-none transition-all" style="font-size: ${labelSize}px; line-height: 1.2;">
+          ${label}
+        </span>`
+      : '';
+
+  const html = `
+    <div class="relative flex items-center justify-center transition-all duration-150 ${scale} ${pulseClass}">
+      ${pinSvg}
       ${lockBadge}
-      ${
-        label
-          ? `<span class="absolute -bottom-6 bg-slate-900/95 text-slate-100 text-[11px] font-bold px-2 py-0.5 rounded shadow-md border border-slate-700 whitespace-nowrap font-mono">${label}</span>`
-          : ''
-      }
+      ${labelHtml}
     </div>
   `;
+
+  const anchorY = pinStyle === 'circle_dot' ? Math.round(width * 0.375) : height;
+  const anchorX = pinStyle === 'circle_dot' ? Math.round(width * 0.375) : Math.round(width / 2);
 
   return L.divIcon({
     html,
     className: 'custom-leaflet-marker',
-    iconSize: [32, 42],
-    iconAnchor: [16, 42],
-    popupAnchor: [0, -38],
+    iconSize: [width, height],
+    iconAnchor: [anchorX, anchorY],
+    popupAnchor: [0, -height + 4],
   });
 }
 
@@ -121,6 +199,13 @@ export const MapContainer: React.FC = () => {
   const annotations = useStore((s) => s.annotations);
   const selectedAnnotationId = useStore((s) => s.selectedAnnotationId);
   const drawingLinePoints = useStore((s) => s.drawingLinePoints);
+
+  // Pin & Label Settings
+  const pinStyle = useStore((s) => s.pinStyle);
+  const pinSize = useStore((s) => s.pinSize);
+  const pointLabelSize = useStore((s) => s.pointLabelSize);
+  const pointLabelPosition = useStore((s) => s.pointLabelPosition);
+  const showPointLabels = useStore((s) => s.showPointLabels);
 
   const manualZoneOverride = useStore((s) => s.manualZoneOverride);
   const autoFetchElevation = useStore((s) => s.autoFetchElevation);
@@ -228,6 +313,17 @@ export const MapContainer: React.FC = () => {
       attributionControl: false,
       preferCanvas: true,
       tapHold: true, // leaflet taphold support
+      // Ultra-High 60 FPS GPU & Inertial Acceleration
+      inertia: true,
+      inertiaDeceleration: 3200,
+      inertiaMaxSpeed: 2200,
+      easeLinearity: 0.12,
+      zoomAnimation: true,
+      zoomAnimationThreshold: 4,
+      fadeAnimation: true,
+      markerZoomAnimation: true,
+      wheelPxPerZoomLevel: 90,
+      wheelDebounceTime: 35,
     });
 
     L.control.zoom({ position: language === 'ar' ? 'topleft' : 'topright' }).addTo(map);
@@ -305,8 +401,10 @@ export const MapContainer: React.FC = () => {
       maxNativeZoom: 18,
       attribution: provider.attribution,
       subdomains: provider.subdomains || ['a', 'b', 'c'],
-      keepBuffer: 4,
-      updateWhenIdle: true,
+      keepBuffer: 8,
+      updateWhenIdle: false,
+      updateWhenZooming: false,
+      updateInterval: 25,
     });
 
     newTileLayer.on('loading', () => setIsTileLoading(true));
@@ -326,25 +424,35 @@ export const MapContainer: React.FC = () => {
       const overlay = L.tileLayer(ESRI_REFERENCE_URL, { 
         maxZoom: 22,
         maxNativeZoom: 18,
-        keepBuffer: 4,
-        updateWhenIdle: true,
+        keepBuffer: 8,
+        updateWhenIdle: false,
+        updateWhenZooming: false,
+        updateInterval: 25,
       });
       overlay.addTo(map);
       overlayLayerRef.current = overlay;
     }
   }, [activeTileLayer, handleTileError]);
 
-  // 3. Mousemove Coords Display & Live Measure
+  // 3. Mousemove Coords Display & Live Measure (Throttled with requestAnimationFrame for pure 60fps)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    const handleMouseMove = (e: L.LeafletMouseEvent) => {
+    let rafId: number | null = null;
+    let lastEvent: L.LeafletMouseEvent | null = null;
+
+    const processMouseMove = () => {
+      if (!lastEvent) return;
+      const e = lastEvent;
+      lastEvent = null;
+      rafId = null;
+
       const { lat, lng } = e.latlng;
       const st = stateRef.current;
       const utm = latLngToUTM(lat, lng, st.manualZoneOverride);
       
-      // We still update React state for the footer bar (it might cause a render, but it's isolated or acceptable)
+      // Update React state for footer bar
       setCursorUtm(utm);
 
       // Handle live measure drawing imperatively for performance (no re-renders)
@@ -446,8 +554,16 @@ export const MapContainer: React.FC = () => {
       }
     };
 
+    const handleMouseMove = (e: L.LeafletMouseEvent) => {
+      lastEvent = e;
+      if (!rafId) {
+        rafId = requestAnimationFrame(processMouseMove);
+      }
+    };
+
     map.on('mousemove', handleMouseMove);
     return () => {
+      if (rafId) cancelAnimationFrame(rafId);
       map.off('mousemove', handleMouseMove);
     };
   }, []);
@@ -628,7 +744,17 @@ export const MapContainer: React.FC = () => {
     points.forEach((pt) => {
       const isSelected = selectedPointId === pt.id;
       const isLocked = Boolean(pt.isLocked);
-      const icon = createCustomMarkerIcon(pt.color || '#10b981', pt.name, isSelected, isLocked);
+      const icon = createCustomMarkerIcon(
+        pt.color || '#ea4335',
+        pt.name,
+        isSelected,
+        isLocked,
+        pinSize,
+        pointLabelSize,
+        pointLabelPosition,
+        showPointLabels,
+        pinStyle
+      );
 
       if (currentMarkers.has(pt.id)) {
         const existingMarker = currentMarkers.get(pt.id)!;
@@ -745,6 +871,11 @@ export const MapContainer: React.FC = () => {
     setSelectedPointId,
     setContextMenu,
     setQuickMapPopover,
+    pinSize,
+    pointLabelSize,
+    pointLabelPosition,
+    showPointLabels,
+    pinStyle,
   ]);
 
   // 6. Fly to selected point

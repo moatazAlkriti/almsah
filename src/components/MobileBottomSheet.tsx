@@ -46,6 +46,7 @@ export const MobileBottomSheet: React.FC = () => {
   const deletePoint = useStore((s) => s.deletePoint);
   const togglePointLock = useStore((s) => s.togglePointLock);
   const updatePoint = useStore((s) => s.updatePoint);
+  const clearAllPoints = useStore((s) => s.clearAllPoints);
   const setSearchQuery = useStore((s) => s.setSearchQuery);
   const setSelectedCategoryFilter = useStore((s) => s.setSelectedCategoryFilter);
   const setActiveModal = useStore((s) => s.setActiveModal);
@@ -63,6 +64,32 @@ export const MobileBottomSheet: React.FC = () => {
   const [sheetState, setSheetState] = useState<'peek' | 'half' | 'full'>('peek');
   const [expandedPointId, setExpandedPointId] = useState<string | null>(null);
   const [inlineEditingId, setInlineEditingId] = useState<string | null>(null);
+
+  // 5-second Safety Countdown for Clear All
+  const [isConfirmingClear, setIsConfirmingClear] = useState(false);
+  const [clearCountdown, setClearCountdown] = useState(5);
+
+  React.useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    if (isConfirmingClear) {
+      setClearCountdown(5);
+      timer = setInterval(() => {
+        setClearCountdown((prev) => {
+          if (prev <= 1) {
+            if (timer) clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      setClearCountdown(5);
+    }
+
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isConfirmingClear]);
 
   // Auto minimize bottom sheet when map popover or context menu opens
   React.useEffect(() => {
@@ -463,7 +490,7 @@ export const MobileBottomSheet: React.FC = () => {
                           setSelectedPointId(pt.id);
                           setExpandedPointId(pt.id);
                         }}
-                        className="p-3 rounded-2xl border border-slate-800/80 bg-slate-950/70 hover:bg-slate-800/50 transition-all cursor-pointer flex items-center justify-between gap-2"
+                        className="p-3 rounded-2xl border border-slate-800/80 bg-slate-950/70 hover:bg-slate-800/50 transition-all cursor-pointer flex items-center justify-between gap-2 point-card-contain"
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <span
@@ -766,6 +793,104 @@ export const MobileBottomSheet: React.FC = () => {
               )
             )}
           </div>
+
+          {/* Mobile Footer Clear All Button with 5-second Safety Countdown */}
+          {((activeTab === 'points' && points.length > 0) || (activeTab === 'annotations' && annotations.length > 0)) && (
+            <div className="p-3 border-t border-slate-800/80 bg-slate-950/90 shrink-0 pb-safe">
+              {isConfirmingClear ? (
+                <div className="space-y-2.5 bg-rose-950/40 border border-rose-500/40 rounded-2xl p-3 shadow-xl animate-in fade-in zoom-in-95 duration-150">
+                  <div className="flex items-start gap-2 text-rose-300 text-xs font-semibold leading-relaxed">
+                    <Trash2 className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                    <span>
+                      {isAr
+                        ? activeTab === 'points'
+                          ? '⚠️ تحذير: سيتم مسح كافة نقاط وبيانات المشروع نهائياً!'
+                          : '⚠️ تحذير: سيتم مسح كافة الرسومات نهائياً!'
+                        : '⚠️ Warning: All project points & data will be permanently wiped!'}
+                    </span>
+                  </div>
+
+                  {clearCountdown > 0 ? (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[11px] text-rose-400 font-mono">
+                        <span>{isAr ? 'قفل الأمان نشط:' : 'Safety lock:'}</span>
+                        <span className="font-bold bg-rose-500/20 px-1.5 py-0.5 rounded border border-rose-500/30">
+                          {clearCountdown} {isAr ? 'ثوانٍ' : 'sec'}
+                        </span>
+                      </div>
+                      <div className="w-full bg-slate-800/90 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="bg-rose-500 h-full transition-all duration-1000 ease-linear rounded-full"
+                          style={{ width: `${((5 - clearCountdown) / 5) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                      <span>{isAr ? 'تم إلغاء قفل الأمان - يمكنك التأكيد الآن:' : 'Safety lock released:'}</span>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmingClear(false)}
+                      className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-semibold transition-all border border-slate-700"
+                    >
+                      {getTranslation(language, 'cancel')}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={clearCountdown > 0}
+                      onClick={() => {
+                        if (clearCountdown > 0) return;
+                        if (activeTab === 'points') {
+                          clearAllPoints();
+                        } else {
+                          useStore.getState().clearAllAnnotations();
+                        }
+                        setIsConfirmingClear(false);
+                      }}
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg ${
+                        clearCountdown > 0
+                          ? 'bg-slate-900 text-slate-500 border border-slate-800 cursor-not-allowed opacity-60'
+                          : 'bg-rose-600 hover:bg-rose-500 text-white border border-rose-400 shadow-rose-600/30 active:scale-95'
+                      }`}
+                    >
+                      {clearCountdown > 0 ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-400" />
+                          <span>{isAr ? `انتظر (${clearCountdown}ث)...` : `Wait (${clearCountdown}s)...`}</span>
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>{isAr ? 'تأكيد المسح النهائي' : 'Confirm Wipe'}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setIsConfirmingClear(true)}
+                  className="w-full py-2.5 px-3 rounded-xl border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/60 text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>
+                    {activeTab === 'points'
+                      ? isAr
+                        ? `مسح جميع النقاط (${points.length})`
+                        : `Clear All Points (${points.length})`
+                      : isAr
+                      ? `مسح جميع الرسومات (${annotations.length})`
+                      : `Clear All Annotations (${annotations.length})`}
+                  </span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

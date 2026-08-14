@@ -101,6 +101,50 @@
   height: 100%;
   background-color: #000000 !important;
   font-family: -apple-system, BlinkMacSystemFont, 'Tajawal', sans-serif !important;
+  transform: translate3d(0, 0, 0);
+  -webkit-transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  perspective: 1000px;
+}
+
+/* 60 FPS GPU Acceleration & Compositing Layers */
+.leaflet-tile {
+  transform: translate3d(0, 0, 0);
+  -webkit-transform: translate3d(0, 0, 0);
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  image-rendering: -webkit-optimize-contrast;
+}
+
+.custom-leaflet-marker {
+  transform: translate3d(0, 0, 0);
+  -webkit-transform: translate3d(0, 0, 0);
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+.leaflet-pane > svg,
+.leaflet-pane > canvas {
+  transform: translate3d(0, 0, 0);
+  -webkit-transform: translate3d(0, 0, 0);
+  will-change: transform;
+}
+
+/* High-Performance GPU virtualized list rendering */
+.point-card-contain {
+  contain: layout style paint;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 54px;
+}
+
+/* Smooth Hardware-Accelerated Animation Helpers */
+.gpu-layer {
+  transform: translate3d(0, 0, 0);
+  -webkit-transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  perspective: 1000px;
 }
 
 /* Restore proper Leaflet pane z-index hierarchy */
