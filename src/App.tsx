@@ -24,6 +24,7 @@ import { ContextMenu } from './components/ContextMenu';
 import { MobileBottomSheet } from './components/MobileBottomSheet';
 
 import { AnnotationEditors } from './components/AnnotationEditors';
+import { ElevationProfileModal } from './components/ElevationProfileModal';
 
 export default function App() {
   return (
@@ -68,6 +69,7 @@ export default function App() {
       <BatchActionModal />
       <BatchDeleteModal />
       <EraserChoiceModal />
+      <ElevationProfileModal />
     </div>
   );
 }

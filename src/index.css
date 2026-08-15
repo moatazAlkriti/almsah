@@ -243,3 +243,44 @@
   border: none !important; 
   box-shadow: none !important; 
 }
+
+/* Professional Print Styles for Survey & Elevation Reports */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  body, html, #root {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Hide entire app UI frame except printable container */
+  #root > div > header,
+  #root > div > div,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Ensure print modal is displayed statically at top of printed page */
+  .fixed {
+    position: static !important;
+  }
+
+  #elevation-profile-print-area {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+}

@@ -6,7 +6,7 @@ import { fetchElevation } from '../utils/elevation';
 import { getTranslation } from '../utils/translations';
 import { getNextPointSequenceNumber, detectMostCommonPrefix } from '../utils/pointNaming';
 import { TileLayerType, UTMCoordinate, AnnotationText } from '../types';
-import { Crosshair, Ruler, MapPin, Layers, Lock, Sparkles, LocateFixed, Loader2, AlertCircle, RotateCw, Wifi, PenTool, Type, X, Eraser, BoxSelect } from 'lucide-react';
+import { Crosshair, Ruler, MapPin, Layers, Lock, Sparkles, LocateFixed, Loader2, AlertCircle, RotateCw, Wifi, PenTool, Type, X, Eraser, BoxSelect, Plus } from 'lucide-react';
 import { AnnotationToolbar } from './AnnotationToolbar';
 import { LineEditorModal } from './LineEditorModal';
 import { TextEditorModal } from './TextEditorModal';
@@ -176,6 +176,8 @@ export const MapContainer: React.FC = () => {
   const drawingLinePolylineRef = useRef<L.Polyline | null>(null);
   const drawingLineMarkersRef = useRef<L.Marker[]>([]);
   const twoPointMeasureLayerRef = useRef<L.FeatureGroup | null>(null);
+  const elevationProfileLayerRef = useRef<L.FeatureGroup | null>(null);
+
 
   // Long press timer refs
   const longPressTimerRef = useRef<any>(null);
@@ -216,6 +218,8 @@ export const MapContainer: React.FC = () => {
   const activeModal = useStore((s) => s.activeModal);
   const pointAMeasureId = useStore((s) => s.pointAMeasureId);
   const pointBMeasureId = useStore((s) => s.pointBMeasureId);
+  const elevationProfile = useStore((s) => s.elevationProfile);
+
 
   const movePoint = useStore((s) => s.movePoint);
   const updatePoint = useStore((s) => s.updatePoint);
@@ -644,6 +648,7 @@ export const MapContainer: React.FC = () => {
       if (st.isAddingPointMode) { 
         st.setTempMapClickCoords({ lat, lng, utm });
         st.setActiveModal('add_point');
+        st.setIsAddingPointMode(false);
         return; 
       }
       
@@ -651,9 +656,11 @@ export const MapContainer: React.FC = () => {
         return;
       }
 
-      st.setQuickMapPopover({ lat, lng, utm, x: e.originalEvent.clientX, y: e.originalEvent.clientY });
+      // Normal map click: deselect active point and close popovers (no unsolicited point addition)
+      st.setSelectedPointId(null);
       st.setContextMenu(null);
       st.setSelectedAnnotationId(null);
+      st.setQuickMapPopover(null);
     };
 
     map.on('click', handleClick);
@@ -734,12 +741,12 @@ export const MapContainer: React.FC = () => {
     }
   }, [isSelectionMode]);
 
-  // Quick Eraser Mode & Keyboard Esc effect
+  // Quick Eraser / Selection / Add Point Cursor & Keyboard Esc effect
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    if (isEraserMode) {
+    if (isEraserMode || isAddingPointMode) {
       map.getContainer().style.cursor = 'crosshair';
     } else if (!isSelectionMode) {
       map.getContainer().style.cursor = '';
@@ -764,7 +771,7 @@ export const MapContainer: React.FC = () => {
         mapInstanceRef.current.getContainer().style.cursor = '';
       }
     };
-  }, [isEraserMode, isSelectionMode]);
+  }, [isEraserMode, isSelectionMode, isAddingPointMode]);
 
   // 5. Sync Markers on Map
   useEffect(() => {
@@ -1238,6 +1245,48 @@ export const MapContainer: React.FC = () => {
     }
   }, [pointAMeasureId, pointBMeasureId, points]);
 
+  // Sync Elevation Profile Hover Marker & Path Highlighting
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (!elevationProfileLayerRef.current || !map.hasLayer(elevationProfileLayerRef.current)) {
+      if (elevationProfileLayerRef.current) elevationProfileLayerRef.current.remove();
+      elevationProfileLayerRef.current = L.featureGroup().addTo(map);
+    }
+
+    const layerGroup = elevationProfileLayerRef.current;
+    layerGroup.clearLayers();
+
+    if (elevationProfile.isOpen && elevationProfile.hoveredCoord) {
+      const { lat, lng, elevation, distanceMeters } = elevationProfile.hoveredCoord;
+      const { isAr, language } = stateRef.current;
+
+      const formattedDist = distanceMeters >= 1000 ? `${(distanceMeters / 1000).toFixed(2)} km` : `${distanceMeters.toFixed(1)} m`;
+
+      const html = `
+        <div class="relative flex flex-col items-center pointer-events-none -translate-x-1/2 -translate-y-full">
+          <div class="bg-slate-900/95 border-2 border-sky-400 text-slate-100 font-mono text-[11px] font-extrabold px-2 py-0.5 rounded-full shadow-2xl backdrop-blur-md flex items-center gap-1.5 whitespace-nowrap animate-bounce">
+            <span class="w-2 h-2 rounded-full bg-sky-400"></span>
+            <span class="text-sky-300 font-bold">${elevation} m</span>
+            <span class="text-slate-400 text-[9px]">(${formattedDist})</span>
+          </div>
+          <div class="w-4 h-4 rounded-full bg-sky-500/80 border-2 border-white shadow-lg ring-4 ring-sky-500/40 animate-ping mt-1"></div>
+        </div>
+      `;
+
+      const pinIcon = L.divIcon({
+        html,
+        className: 'elevation-hover-map-pin',
+        iconSize: [120, 60],
+        iconAnchor: [60, 60],
+      });
+
+      L.marker([lat, lng], { icon: pinIcon, interactive: false }).addTo(layerGroup);
+    }
+  }, [elevationProfile.isOpen, elevationProfile.hoveredCoord]);
+
+
   // 8. Global Keyboard Shortcuts Handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1476,6 +1525,31 @@ export const MapContainer: React.FC = () => {
             className="ml-2 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95"
           >
             {isAr ? 'إنهاء (ESC)' : 'Exit (ESC)'}
+          </button>
+        </div>
+      )}
+
+      {/* Add Point Mode Active HUD Notification */}
+      {isAddingPointMode && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-emerald-950/95 text-emerald-100 border border-emerald-500/60 backdrop-blur-md px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top duration-200 max-w-[92vw]">
+          <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
+            <Plus className="w-5 h-5 text-emerald-400 animate-pulse" />
+          </div>
+          <div className="flex flex-col min-w-0">
+            <span className="text-xs md:text-sm font-bold text-emerald-100 truncate">
+              {isAr ? 'وضع إضافة نقطة مساحية نشط' : 'Add Survey Point Mode Active'}
+            </span>
+            <span className="text-[10px] md:text-xs text-emerald-300">
+              {isAr
+                ? 'انقر على أي موقع في الخريطة لتسجيل النقطة وإدخال بياناتها'
+                : 'Click any location on the map to place point and enter data'}
+            </span>
+          </div>
+          <button
+            onClick={() => useStore.getState().setIsAddingPointMode(false)}
+            className="ml-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 shrink-0"
+          >
+            {isAr ? 'إلغاء (ESC)' : 'Cancel (ESC)'}
           </button>
         </div>
       )}

@@ -22,6 +22,8 @@ import {
   ImportResult,
   PinStyle,
   PointLabelPosition,
+  ElevationProfileState,
+  ProfileSourceMode,
 } from '../types';
 import { latLngToUTM, utmToLatLng, calculateHaversineDistance } from '../utils/utm';
 import { fetchElevation } from '../utils/elevation';
@@ -130,6 +132,23 @@ interface AppState {
   // History & Toasts
   lastMovedPoint: PointMoveHistory | null;
   toast: ToastMessage | null;
+
+  // Elevation Profile State
+  elevationProfile: ElevationProfileState;
+  openElevationProfile: (opts?: {
+    sourceMode?: ProfileSourceMode;
+    title?: string;
+    sourceLineId?: string;
+    sourceFolderName?: string;
+    startPointId?: string;
+    endPointId?: string;
+  }) => void;
+  closeElevationProfile: () => void;
+  toggleMinimizeElevationProfile: () => void;
+  setElevationProfileHoverCoord: (coord: { lat: number; lng: number; elevation: number; distanceMeters: number } | null) => void;
+  setElevationProfileSourceMode: (mode: ProfileSourceMode) => void;
+  setElevationProfilePoints: (startId?: string, endId?: string) => void;
+
 
   // Actions
   addPoint: (pointData: Omit<SurveyPoint, 'id' | 'timestamp'>) => void;
@@ -298,6 +317,84 @@ export const useStore = create<AppState>()(
 
       lastMovedPoint: null,
       toast: null,
+
+      elevationProfile: {
+        isOpen: false,
+        isMinimized: false,
+        sourceMode: 'sequence',
+        title: '',
+        sourceLineId: undefined,
+        sourceFolderName: undefined,
+        startPointId: undefined,
+        endPointId: undefined,
+        hoveredCoord: null,
+      },
+
+      openElevationProfile: (opts) => {
+        set((s) => ({
+          elevationProfile: {
+            ...s.elevationProfile,
+            isOpen: true,
+            isMinimized: false,
+            sourceMode: opts?.sourceMode || s.elevationProfile.sourceMode || 'sequence',
+            title: opts?.title || s.elevationProfile.title || '',
+            sourceLineId: opts?.sourceLineId !== undefined ? opts.sourceLineId : s.elevationProfile.sourceLineId,
+            sourceFolderName: opts?.sourceFolderName !== undefined ? opts.sourceFolderName : s.elevationProfile.sourceFolderName,
+            startPointId: opts?.startPointId !== undefined ? opts.startPointId : s.elevationProfile.startPointId,
+            endPointId: opts?.endPointId !== undefined ? opts.endPointId : s.elevationProfile.endPointId,
+            hoveredCoord: null,
+          },
+        }));
+      },
+
+      closeElevationProfile: () => {
+        set((s) => ({
+          elevationProfile: {
+            ...s.elevationProfile,
+            isOpen: false,
+            hoveredCoord: null,
+          },
+        }));
+      },
+
+      toggleMinimizeElevationProfile: () => {
+        set((s) => ({
+          elevationProfile: {
+            ...s.elevationProfile,
+            isMinimized: !s.elevationProfile.isMinimized,
+          },
+        }));
+      },
+
+      setElevationProfileHoverCoord: (coord) => {
+        set((s) => ({
+          elevationProfile: {
+            ...s.elevationProfile,
+            hoveredCoord: coord,
+          },
+        }));
+      },
+
+      setElevationProfileSourceMode: (mode) => {
+        set((s) => ({
+          elevationProfile: {
+            ...s.elevationProfile,
+            sourceMode: mode,
+            hoveredCoord: null,
+          },
+        }));
+      },
+
+      setElevationProfilePoints: (startId, endId) => {
+        set((s) => ({
+          elevationProfile: {
+            ...s.elevationProfile,
+            startPointId: startId,
+            endPointId: endId,
+          },
+        }));
+      },
+
 
       // Actions
       addPoint: (pointData) => {

@@ -137,3 +137,18 @@ export interface ImportResult {
   labelsCount: number;
   warnings: string[];
 }
+
+export type ProfileSourceMode = 'sequence' | 'quick_select' | 'start_end' | 'line' | 'folder';
+
+export interface ElevationProfileState {
+  isOpen: boolean;
+  isMinimized: boolean;
+  sourceMode: ProfileSourceMode;
+  title: string;
+  sourceLineId?: string;
+  sourceFolderName?: string;
+  startPointId?: string;
+  endPointId?: string;
+  hoveredCoord: { lat: number; lng: number; elevation: number; distanceMeters: number } | null;
+}
+

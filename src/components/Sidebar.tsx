@@ -61,6 +61,8 @@ export const Sidebar: React.FC = () => {
   const deleteCategory = useStore((s) => s.deleteCategory);
   const toggleFolderLock = useStore((s) => s.toggleFolderLock);
   const exportSettings = useStore((s) => s.exportSettings);
+  const openElevationProfile = useStore((s) => s.openElevationProfile);
+
 
   // Folder & Tree State
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
@@ -500,7 +502,17 @@ export const Sidebar: React.FC = () => {
                   </>
                 )}
               </button>
+
+              <button
+                type="button"
+                onClick={() => openElevationProfile({ sourceMode: 'sequence' })}
+                className="w-full py-1.5 px-2.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300 text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-sm"
+              >
+                <Mountain className="w-3.5 h-3.5 text-sky-400" />
+                <span>{isAr ? 'عرض مخطط المقطع التضاريسي (بروفايل الارتفاع)' : 'View Elevation Profile'}</span>
+              </button>
             </div>
+
 
             {/* Folder Groups & Points List */}
             {filteredPoints.length === 0 ? (
@@ -616,12 +628,27 @@ export const Sidebar: React.FC = () => {
                       </button>
 
                       <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openElevationProfile({
+                            sourceMode: 'folder',
+                            sourceFolderName: folderName === defaultGeneralFolder ? 'all' : folderName,
+                          });
+                        }}
+                        className="p-1 hover:text-sky-400 hover:bg-slate-800 rounded text-slate-400"
+                        title={isAr ? 'عرض بروفايل الارتفاع لهذا المجلد' : 'View Folder Elevation Profile'}
+                      >
+                        <Mountain className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
                         onClick={(e) => handleExportFolderToExcel(folderName, e)}
                         className="p-1 hover:text-emerald-400 hover:bg-slate-800 rounded text-slate-400"
                         title={isAr ? 'تصدير هذا المجلد لـ Excel' : 'Export folder to Excel'}
                       >
                         <FileSpreadsheet className="w-3.5 h-3.5" />
                       </button>
+
 
                       {folderName !== defaultGeneralFolder && (
                         <>
@@ -1023,15 +1050,33 @@ export const Sidebar: React.FC = () => {
                   </div>
                 </div>
 
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    useStore.getState().deleteAnnotation(ann.id);
-                  }}
-                  className="p-1.5 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors shrink-0"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  {ann.type === 'line' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openElevationProfile({
+                          sourceMode: 'line',
+                          sourceLineId: ann.id,
+                        });
+                      }}
+                      className="p-1.5 hover:text-sky-400 hover:bg-slate-800 rounded-lg transition-colors"
+                      title={isAr ? 'عرض بروفايل الارتفاع لهذا الخط' : 'View Elevation Profile'}
+                    >
+                      <Mountain className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      useStore.getState().deleteAnnotation(ann.id);
+                    }}
+                    className="p-1.5 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
               </div>
             ))
           )
