@@ -233,8 +233,9 @@ export const MapContainer: React.FC = () => {
   const revertLastMove = useStore((s) => s.revertLastMove);
   const deletePoint = useStore((s) => s.deletePoint);
 
-  // Cursor UTM display state
-  const [cursorUtm, setCursorUtm] = useState<UTMCoordinate | null>(null);
+  // Direct DOM refs for cursor coordinates to avoid React re-renders on mousemove
+  const cursorUtmTextRef = useRef<HTMLSpanElement>(null);
+  const cursorMgrsTextRef = useRef<HTMLSpanElement>(null);
   const [showLayerPicker, setShowLayerPicker] = useState(false);
   
   const isAr = language === 'ar';
@@ -406,10 +407,11 @@ export const MapContainer: React.FC = () => {
       maxNativeZoom: 18,
       attribution: provider.attribution,
       subdomains: provider.subdomains || ['a', 'b', 'c'],
-      keepBuffer: 8,
-      updateWhenIdle: false,
-      updateWhenZooming: false,
-      updateInterval: 25,
+      keepBuffer: 2,
+      updateWhenIdle: true,
+      updateWhenZooming: true,
+      updateInterval: 120,
+      crossOrigin: 'anonymous',
     });
 
     newTileLayer.on('loading', () => setIsTileLoading(true));
@@ -429,10 +431,11 @@ export const MapContainer: React.FC = () => {
       const overlay = L.tileLayer(ESRI_REFERENCE_URL, { 
         maxZoom: 22,
         maxNativeZoom: 18,
-        keepBuffer: 8,
-        updateWhenIdle: false,
-        updateWhenZooming: false,
-        updateInterval: 25,
+        keepBuffer: 2,
+        updateWhenIdle: true,
+        updateWhenZooming: true,
+        updateInterval: 120,
+        crossOrigin: 'anonymous',
       });
       overlay.addTo(map);
       overlayLayerRef.current = overlay;
@@ -457,8 +460,14 @@ export const MapContainer: React.FC = () => {
       const st = stateRef.current;
       const utm = latLngToUTM(lat, lng, st.manualZoneOverride);
       
-      // Update React state for footer bar
-      setCursorUtm(utm);
+      // Update DOM directly for zero React re-render CPU overhead
+      if (cursorUtmTextRef.current) {
+        cursorUtmTextRef.current.textContent = formatUTMString(utm, st.language);
+      }
+      if (cursorMgrsTextRef.current) {
+        const mgrs = latLngToMGRS(lat, lng);
+        cursorMgrsTextRef.current.textContent = `MGRS: ${mgrs}`;
+      }
 
       // Handle live measure drawing imperatively for performance (no re-renders)
       if (st.isMeasuringMode && st.measurePoints.length > 0) {
@@ -1437,17 +1446,12 @@ export const MapContainer: React.FC = () => {
           <span className="text-slate-400 font-sans text-[11px] shrink-0">
             {getTranslation(language, 'cursorUtm')}
           </span>
-          <span className="font-semibold text-slate-100 tracking-wide">
-            {cursorUtm ? formatUTMString(cursorUtm, language) : '---'}
+          <span ref={cursorUtmTextRef} className="font-semibold text-slate-100 tracking-wide min-w-[140px]">
+            ---
           </span>
-          {cursorUtm && (
-            <span className="text-[10px] bg-slate-900 border border-slate-800 text-amber-400 px-2 py-0.5 rounded-full font-bold">
-              MGRS: {(() => {
-                const pt = utmToLatLng(cursorUtm);
-                return latLngToMGRS(pt.lat, pt.lng);
-              })()}
-            </span>
-          )}
+          <span ref={cursorMgrsTextRef} className="text-[10px] bg-slate-900 border border-slate-800 text-amber-400 px-2 py-0.5 rounded-full font-bold">
+            MGRS: ---
+          </span>
         </div>
       </div>
 
