@@ -118,6 +118,7 @@ interface AppState {
     | 'converter'
     | 'two_point_measure'
     | 'line_stationing'
+    | 'extra_tools'
     | null;
   tempMapClickCoords: TempMapClickCoords | null;
   quickMapPopover: MapPopoverCoords | null;
@@ -228,6 +229,7 @@ interface AppState {
       | 'converter'
       | 'two_point_measure'
       | 'line_stationing'
+      | 'extra_tools'
       | null
   ) => void;
 
