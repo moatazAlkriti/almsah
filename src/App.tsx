@@ -26,6 +26,7 @@ import { MobileBottomSheet } from './components/MobileBottomSheet';
 import { AnnotationEditors } from './components/AnnotationEditors';
 import { ElevationProfileModal } from './components/ElevationProfileModal';
 import { ExtraToolsModal } from './components/ExtraToolsModal';
+import { DuplicateEndpointModal } from './components/DuplicateEndpointModal';
 
 export default function App() {
   return (
@@ -72,6 +73,7 @@ export default function App() {
       <EraserChoiceModal />
       <ElevationProfileModal />
       <ExtraToolsModal />
+      <DuplicateEndpointModal />
     </div>
   );
 }

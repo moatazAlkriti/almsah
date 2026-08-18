@@ -9,7 +9,7 @@ export const translations = {
     addPoint: 'إضافة نقطة جديدة',
     addByClick: 'انقر على الخريطة لتحديد نقطة',
     addManual: 'إدخال يدوي بإحداثيات UTM',
-    measureDistance: 'قياس المسافات',
+    measureDistance: 'أداة القياس',
     exportExcel: 'تصدير إكسل (.xlsx)',
     importExcel: 'استيراد إكسل',
     clearAll: 'مسح جميع النقاط',

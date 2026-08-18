@@ -152,3 +152,10 @@ export interface ElevationProfileState {
   hoveredCoord: { lat: number; lng: number; elevation: number; distanceMeters: number } | null;
 }
 
+export interface DuplicateEndpointCheckData {
+  firstPoint: SurveyPoint;
+  lastPoint: SurveyPoint;
+  distanceMeters: number;
+}
+
+

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import { useStore } from '../store/useStore';
-import { latLngToUTM, formatUTMString, calculateHaversineDistance, latLngToMGRS, utmToLatLng, calculateUTMDistance, calculateBearing } from '../utils/utm';
+import { latLngToUTM, formatUTMString, calculateHaversineDistance, latLngToMGRS, utmToLatLng, calculateUTMDistance, calculateBearing, calculateUTMAngle } from '../utils/utm';
 import { fetchElevation } from '../utils/elevation';
 import { getTranslation } from '../utils/translations';
 import { getNextPointSequenceNumber, detectMostCommonPrefix } from '../utils/pointNaming';
@@ -494,6 +494,7 @@ export const MapContainer: React.FC = () => {
         }
 
         const dist = calculateHaversineDistance(lastPt.lat, lastPt.lng, lat, lng);
+        const angle = calculateUTMAngle(lastPt.utm, utm);
         
         // Calculate total previous distance
         let totalPrevDist = 0;
@@ -513,12 +514,13 @@ export const MapContainer: React.FC = () => {
 
         const cur = formatValUnit(dist);
         const tot = formatValUnit(totalPrevDist + dist);
+        const angleDisplay = angle.toFixed(1);
         
         let html = '';
         if (totalPrevDist > 0) {
           html = `<div dir="${st.isAr ? 'rtl' : 'ltr'}" class="bg-slate-900/95 text-slate-100 px-3.5 py-2 rounded-xl shadow-2xl border border-amber-500/50 backdrop-blur-md min-w-[180px] flex flex-col gap-1 text-xs font-sans">
             <div class="flex items-center justify-between gap-3">
-              <span class="text-slate-400 text-[11px] font-medium">${st.isAr ? 'المسافة الحالية:' : 'Current:'}</span>
+              <span class="text-slate-400 text-[11px] font-medium flex items-center gap-1">${st.isAr ? 'المسافة الحالية:' : 'Current:'} <span class="text-sky-400 font-mono">(${angleDisplay}&deg;)</span></span>
               <span class="text-amber-400 font-bold font-mono text-xs inline-flex items-center gap-1" dir="ltr">
                 <span>+${cur.val}</span>
                 <span class="text-[11px] text-amber-300 font-sans">${cur.unit}</span>
@@ -533,13 +535,23 @@ export const MapContainer: React.FC = () => {
             </div>
           </div>`;
         } else {
-          html = `<div dir="${st.isAr ? 'rtl' : 'ltr'}" class="bg-slate-900/95 text-amber-400 px-3.5 py-2 rounded-xl shadow-2xl border border-amber-500/50 backdrop-blur-md inline-flex items-center gap-2 text-xs font-bold font-sans whitespace-nowrap">
-            <svg class="w-4 h-4 text-amber-400 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-            <span class="text-slate-300 font-medium text-[11px]">${st.isAr ? 'المسافة:' : 'Distance:'}</span>
-            <span class="inline-flex items-center gap-1 font-mono text-amber-400" dir="ltr">
-              <span>${cur.val}</span>
-              <span class="text-[11px] font-sans text-amber-300">${cur.unit}</span>
-            </span>
+          html = `<div dir="${st.isAr ? 'rtl' : 'ltr'}" class="bg-slate-900/95 text-amber-400 px-3.5 py-2 rounded-xl shadow-2xl border border-amber-500/50 backdrop-blur-md inline-flex flex-col gap-1 text-xs font-bold font-sans whitespace-nowrap min-w-[140px]">
+            <div class="flex items-center justify-between gap-3">
+              <span class="text-slate-300 font-medium text-[11px] flex items-center gap-1">
+                <svg class="w-3 h-3 text-amber-400 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                ${st.isAr ? 'المسافة:' : 'Distance:'}
+              </span>
+              <span class="inline-flex items-center gap-1 font-mono text-amber-400" dir="ltr">
+                <span>${cur.val}</span>
+                <span class="text-[11px] font-sans text-amber-300">${cur.unit}</span>
+              </span>
+            </div>
+            <div class="flex items-center justify-between gap-3 border-t border-slate-700/60 pt-1">
+              <span class="text-slate-400 text-[11px] font-medium">${st.isAr ? 'الزاوية:' : 'Angle:'}</span>
+              <span class="text-sky-400 font-mono text-xs inline-flex items-center gap-0.5" dir="ltr">
+                ${angleDisplay}&deg;
+              </span>
+            </div>
           </div>`;
         }
         
@@ -559,8 +571,31 @@ export const MapContainer: React.FC = () => {
           liveMeasureBadgeRef.current.setLatLng([lat, lng]);
           liveMeasureBadgeRef.current.setIcon(badgeIcon);
         }
+      } else if (st.isDrawingLineMode && st.drawingLinePoints.length > 0) {
+        const lastPt = st.drawingLinePoints[st.drawingLinePoints.length - 1];
+        const latLngs: [number, number][] = [
+          [lastPt.lat, lastPt.lng],
+          [lat, lng],
+        ];
+
+        if (!liveMeasurePolylineRef.current) {
+          liveMeasurePolylineRef.current = L.polyline(latLngs, {
+            color: '#fb7185',
+            weight: 3,
+            dashArray: '5, 8',
+            interactive: false,
+          }).addTo(map);
+        } else {
+          liveMeasurePolylineRef.current.setLatLngs(latLngs);
+          liveMeasurePolylineRef.current.setStyle({ color: '#fb7185' });
+        }
+
+        if (liveMeasureBadgeRef.current) {
+          liveMeasureBadgeRef.current.remove();
+          liveMeasureBadgeRef.current = null;
+        }
       } else {
-        // Cleanup if not measuring or no points
+        // Cleanup if not measuring or drawing
         if (liveMeasurePolylineRef.current) {
           liveMeasurePolylineRef.current.remove();
           liveMeasurePolylineRef.current = null;
@@ -913,6 +948,22 @@ export const MapContainer: React.FC = () => {
             return;
           }
 
+          // 3. Drawing Line Mode Click (Snap to point)
+          if (st.isDrawingLineMode) {
+            st.addDrawingLinePoint({
+              lat: pt.lat,
+              lng: pt.lng,
+              utm: pt.utm,
+            });
+            st.showToast(
+              st.language === 'ar'
+                ? `تم ربط النقطة [${pt.name}] بالمسار 🎯`
+                : `Connected point [${pt.name}] to route 🎯`,
+              'info'
+            );
+            return;
+          }
+
           setSelectedPointId(pt.id);
 
           if (st.isMeasuringMode) {
@@ -984,14 +1035,14 @@ export const MapContainer: React.FC = () => {
     measureMarkersRef.current.forEach((m) => m.remove());
     measureMarkersRef.current = [];
 
-    // Only create L.polyline if we have at least 2 points to avoid single-point SVG path bounds bugs
+    // Only create L.polyline and segment midpoint badges if we have at least 2 points
     if (measurePoints.length >= 2) {
       const latLngs = measurePoints.map((p) => [p.lat, p.lng] as [number, number]);
 
       const polyline = L.polyline(latLngs, {
         color: '#f59e0b',
-        weight: 3.5,
-        dashArray: '8, 8',
+        weight: 4,
+        dashArray: '6, 8',
         interactive: false,
         fill: false,
         fillColor: 'none',
@@ -999,6 +1050,34 @@ export const MapContainer: React.FC = () => {
       }).addTo(map);
 
       measurePolylineRef.current = polyline;
+
+      // Add segment distance badge at each leg midpoint
+      for (let i = 0; i < measurePoints.length - 1; i++) {
+        const p1 = measurePoints[i];
+        const p2 = measurePoints[i + 1];
+        const midLat = (p1.lat + p2.lat) / 2;
+        const midLng = (p1.lng + p2.lng) / 2;
+        const segDist = calculateUTMDistance(p1.utm, p2.utm);
+        const isKm = segDist >= 1000;
+        const distStr = isKm
+          ? `${(segDist / 1000).toFixed(2)} km`
+          : `${segDist.toFixed(1)} m`;
+
+        const badgeIcon = L.divIcon({
+          html: `<div class="bg-slate-950/90 border border-amber-500/70 text-amber-300 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full shadow-lg -translate-x-1/2 -translate-y-1/2 whitespace-nowrap pointer-events-none backdrop-blur-xs">
+            ${distStr}
+          </div>`,
+          className: 'measure-segment-badge',
+          iconSize: [60, 20],
+          iconAnchor: [30, 10],
+        });
+
+        const segmentMarker = L.marker([midLat, midLng], {
+          icon: badgeIcon,
+          interactive: false,
+        }).addTo(map);
+        measureMarkersRef.current.push(segmentMarker);
+      }
     }
 
     // Render node markers for all measure points
@@ -1006,19 +1085,16 @@ export const MapContainer: React.FC = () => {
       const { isAr } = stateRef.current;
       measurePoints.forEach((pt, index) => {
         const nodeIcon = L.divIcon({
-          html: `<div class="w-9 h-9 flex items-center justify-center group relative cursor-pointer" title="${isAr ? 'انقر للحفظ كنقطة' : 'Click to save point'}">
+          html: `<div class="w-9 h-9 flex items-center justify-center group relative cursor-pointer" title="${isAr ? 'انقر لتعديل/تثبيت كـ نقطة' : 'Click to save as point'}">
             <!-- Outer glowing aura -->
             <div class="absolute inset-0 bg-amber-500/30 border-2 border-amber-400 rounded-full shadow-[0_0_14px_rgba(245,158,11,0.95)] backdrop-blur-xs transition-transform group-hover:scale-125"></div>
-            <!-- Center dark contrast disc with bright yellow SVG crosshair -->
-            <div class="w-5 h-5 bg-slate-950/90 rounded-full border border-amber-300 flex items-center justify-center shadow-lg relative z-10">
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="4" x2="12" y2="20"></line>
-                <line x1="4" y1="12" x2="20" y2="12"></line>
-              </svg>
+            <!-- Center dark contrast disc with point index badge -->
+            <div class="w-5 h-5 bg-slate-950/90 rounded-full border border-amber-300 flex items-center justify-center shadow-lg relative z-10 font-mono text-[10px] font-bold text-amber-300">
+              ${index + 1}
             </div>
             <!-- Hover Label Badge -->
             <div class="absolute -top-7 ${isAr ? 'right-1/2 translate-x-1/2' : 'left-1/2 -translate-x-1/2'} bg-slate-900/95 text-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-md border border-amber-500/50 shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-30 pointer-events-none" dir="${isAr ? 'rtl' : 'ltr'}">
-              ${isAr ? 'حفظ كنقطة 📍' : 'Save Point 📍'}
+              ${isAr ? `نقطة القياس #${index + 1} 📍` : `Measure #${index + 1} 📍`}
             </div>
           </div>`,
           className: 'measure-node-icon',
@@ -1379,28 +1455,7 @@ export const MapContainer: React.FC = () => {
         </div>
       )}
 
-      {isMeasuringMode && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] bg-amber-950/95 border border-amber-500/50 text-amber-200 pl-5 pr-2 py-2 rounded-full shadow-2xl flex items-center gap-4">
-          <Ruler className="w-5 h-5 text-amber-400" />
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-medium">{getTranslation(language, 'measuringPrompt')}</span>
-            {measurePoints.length > 0 && (
-              <span className="bg-amber-500 text-slate-950 font-mono font-bold text-xs px-2.5 py-0.5 rounded-full">
-                {totalMeasuredMeters > 1000
-                  ? `${(totalMeasuredMeters / 1000).toFixed(2)} km`
-                  : `${totalMeasuredMeters.toFixed(1)} m`}
-              </span>
-            )}
-          </div>
-          <button 
-            onClick={() => useStore.getState().setIsMeasuringMode(false)}
-            className="p-1.5 ml-2 hover:bg-amber-900 rounded-full transition-colors text-amber-400 hover:text-amber-300"
-            title="إلغاء القياس"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+
 
 
       {/* Map Tile Loading Indicator & Retry / Error Banner */}

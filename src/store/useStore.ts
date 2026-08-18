@@ -24,6 +24,7 @@ import {
   PointLabelPosition,
   ElevationProfileState,
   ProfileSourceMode,
+  DuplicateEndpointCheckData,
 } from '../types';
 import { latLngToUTM, utmToLatLng, calculateHaversineDistance } from '../utils/utm';
 import { fetchElevation } from '../utils/elevation';
@@ -119,6 +120,7 @@ interface AppState {
     | 'two_point_measure'
     | 'line_stationing'
     | 'extra_tools'
+    | 'duplicate_endpoint_check'
     | null;
   tempMapClickCoords: TempMapClickCoords | null;
   quickMapPopover: MapPopoverCoords | null;
@@ -190,10 +192,13 @@ interface AppState {
   setSelectedPointIdsForAction: (ids: string[]) => void;
   batchDeletePoints: (ids: string[], forceDeleteLocked?: boolean) => { deletedCount: number; lockedSkipped: number };
   addMeasurePoint: (pt: MeasurePoint) => void;
+  undoMeasurePoint: () => void;
   clearMeasurePoints: () => void;
+  convertMeasurePointsToSurveyPoints: (categoryName?: string) => void;
 
   // Annotations Actions
   setIsDrawingLineMode: (active: boolean) => void;
+  startDrawingLineFromPoint: (pt: AnnotationPoint) => void;
   setIsAddingTextMode: (active: boolean) => void;
   addDrawingLinePoint: (pt: AnnotationPoint) => void;
   undoDrawingLinePoint: () => void;
@@ -230,8 +235,15 @@ interface AppState {
       | 'two_point_measure'
       | 'line_stationing'
       | 'extra_tools'
+      | 'duplicate_endpoint_check'
       | null
   ) => void;
+
+  duplicateEndpointCheck: DuplicateEndpointCheckData | null;
+  continuousSessionPointIds: string[];
+  setDuplicateEndpointCheck: (data: DuplicateEndpointCheckData | null) => void;
+  checkSequenceEndpoints: (pointsOrIds: (string | SurveyPoint)[]) => boolean;
+  resolveDuplicateEndpoints: (action: 'keep_first' | 'keep_last' | 'keep_both') => void;
 
   setExportFormat: (format: 'excel' | 'geojson' | 'backup' | null) => void;
   setImportFile: (file: File | null, type: 'geojson' | 'backup' | null) => void;
@@ -308,6 +320,62 @@ export const useStore = create<AppState>()(
       pendingTextLocation: null,
 
       activeModal: null,
+      duplicateEndpointCheck: null,
+      continuousSessionPointIds: [],
+      setDuplicateEndpointCheck: (data) => set({ duplicateEndpointCheck: data }),
+
+      checkSequenceEndpoints: (pointsOrIds) => {
+        // Feature disabled as per user request
+        return false;
+      },
+
+      resolveDuplicateEndpoints: (action) => {
+        const check = get().duplicateEndpointCheck;
+        if (!check) return;
+        const { firstPoint, lastPoint } = check;
+        const isAr = get().language === 'ar';
+
+        if (action === 'keep_first') {
+          // Keep first point, remove duplicate last point
+          set((s) => ({
+            points: s.points.filter((p) => p.id !== lastPoint.id),
+            selectedPointId: firstPoint.id,
+            duplicateEndpointCheck: null,
+            activeModal: null,
+          }));
+          get().showToast(
+            isAr
+              ? `تم الاحتفاظ بالنقطة الأولى [${firstPoint.name}] وحذف النقطة المكررة بنجاح`
+              : `Kept first point [${firstPoint.name}] and removed duplicate`,
+            'success'
+          );
+        } else if (action === 'keep_last') {
+          // Keep last point, remove duplicate first point
+          set((s) => ({
+            points: s.points.filter((p) => p.id !== firstPoint.id),
+            selectedPointId: lastPoint.id,
+            duplicateEndpointCheck: null,
+            activeModal: null,
+          }));
+          get().showToast(
+            isAr
+              ? `تم الاحتفاظ بالنقطة الأخيرة [${lastPoint.name}] وحذف النقطة الأولى بنجاح`
+              : `Kept last point [${lastPoint.name}] and removed first point`,
+            'success'
+          );
+        } else {
+          // keep_both
+          set({
+            duplicateEndpointCheck: null,
+            activeModal: null,
+          });
+          get().showToast(
+            isAr ? 'تم الإبقاء على كلا النقطتين دون تعديل' : 'Kept both points',
+            'info'
+          );
+        }
+      },
+
       tempMapClickCoords: null,
       quickMapPopover: null,
       contextMenu: null,
@@ -418,6 +486,9 @@ export const useStore = create<AppState>()(
           selectedPointId: newPoint.id,
           activeModal: null,
           isAddingPointMode: isContinuous, // Stay in add mode if continuous!
+          continuousSessionPointIds: isContinuous
+            ? [...state.continuousSessionPointIds, newPoint.id]
+            : state.continuousSessionPointIds,
           tempMapClickCoords: null,
           quickMapPopover: null,
         }));
@@ -813,29 +884,41 @@ export const useStore = create<AppState>()(
         }));
       },
 
-      setIsAddingPointMode: (active) =>
-        set((state) => ({
+      setIsAddingPointMode: (active) => {
+        const state = get();
+        if (!active && state.continuousSessionPointIds.length >= 2) {
+          get().checkSequenceEndpoints(state.continuousSessionPointIds);
+        }
+        set((s) => ({
           isAddingPointMode: active,
-          isContinuousAddMode: active ? state.isContinuousAddMode : false,
+          isContinuousAddMode: active ? s.isContinuousAddMode : false,
+          continuousSessionPointIds: active ? s.continuousSessionPointIds : [],
           isMeasuringMode: false,
           isDrawingLineMode: false,
           isAddingTextMode: false,
           isSelectionMode: false,
           isEraserMode: false,
           drawingLinePoints: [],
-        })),
+        }));
+      },
 
-      setIsContinuousAddMode: (active) =>
+      setIsContinuousAddMode: (active) => {
+        const state = get();
+        if (!active && state.continuousSessionPointIds.length >= 2) {
+          get().checkSequenceEndpoints(state.continuousSessionPointIds);
+        }
         set({
           isContinuousAddMode: active,
           isAddingPointMode: active,
+          continuousSessionPointIds: active ? state.continuousSessionPointIds : [],
           isMeasuringMode: false,
           isDrawingLineMode: false,
           isAddingTextMode: false,
           isSelectionMode: false,
           isEraserMode: false,
           drawingLinePoints: [],
-        }),
+        });
+      },
 
       setIsMeasuringMode: (active) =>
         set({
@@ -923,7 +1006,50 @@ export const useStore = create<AppState>()(
       },
 
       addMeasurePoint: (pt) => set((state) => ({ measurePoints: [...state.measurePoints, pt] })),
+      undoMeasurePoint: () =>
+        set((state) => ({
+          measurePoints: state.measurePoints.slice(0, -1),
+        })),
       clearMeasurePoints: () => set({ measurePoints: [] }),
+      convertMeasurePointsToSurveyPoints: (categoryName) => {
+        const state = get();
+        const mPoints = state.measurePoints;
+        if (mPoints.length === 0) return;
+
+        const isAr = state.language === 'ar';
+        const targetCategory = categoryName || (isAr ? 'نقاط مقاسة' : 'Measured Points');
+        if (targetCategory) {
+          state.addCategory(targetCategory);
+        }
+
+        const newSurveyPoints: SurveyPoint[] = mPoints.map((mPt, idx) => {
+          const name = isAr ? `قياس ${idx + 1}` : `Measure ${idx + 1}`;
+          return {
+            id: `pt_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`,
+            name,
+            category: targetCategory,
+            lat: mPt.lat,
+            lng: mPt.lng,
+            utm: mPt.utm,
+            color: '#f59e0b',
+            timestamp: new Date().toISOString(),
+            isLocked: false,
+          };
+        });
+
+        set((s) => ({
+          points: [...newSurveyPoints, ...s.points],
+          measurePoints: [],
+          isMeasuringMode: false,
+        }));
+
+        state.showToast(
+          isAr
+            ? `تم تثبيت ${newSurveyPoints.length} نقطة مساحية في المشروع بنجاح 📍`
+            : `Saved ${newSurveyPoints.length} measured points to project 📍`,
+          'success'
+        );
+      },
 
       // Annotations Actions
       
@@ -1011,6 +1137,19 @@ export const useStore = create<AppState>()(
         pendingTextLocation: null,
         quickMapPopover: null,
       })),
+
+      startDrawingLineFromPoint: (pt) => set({
+        isDrawingLineMode: true,
+        drawingLinePoints: [pt],
+        isAddingTextMode: false,
+        isAddingPointMode: false,
+        isMeasuringMode: false,
+        isSelectionMode: false,
+        isEraserMode: false,
+        pendingTextLocation: null,
+        quickMapPopover: null,
+        activeModal: null,
+      }),
       
       setIsAddingTextMode: (active) => set((s) => ({
         isAddingTextMode: active,

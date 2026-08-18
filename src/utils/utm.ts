@@ -212,6 +212,17 @@ export function calculateUTMDistance(utm1: UTMCoordinate, utm2: UTMCoordinate): 
 }
 
 /**
+ * Calculates the azimuth/bearing angle between two UTM coordinates
+ * 0/360 = North, 90 = East, 180 = South, 270 = West
+ */
+export function calculateUTMAngle(utm1: UTMCoordinate, utm2: UTMCoordinate): number {
+  const dx = utm2.easting - utm1.easting;
+  const dy = utm2.northing - utm1.northing;
+  let angle = Math.atan2(dx, dy) * (180 / Math.PI);
+  return (angle + 360) % 360;
+}
+
+/**
  * Haversine distance formula in meters
  */
 export function calculateHaversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
