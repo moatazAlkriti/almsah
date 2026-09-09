@@ -21,6 +21,7 @@ import {
   ChevronDown,
   Settings,
   Route,
+  DraftingCompass,
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
@@ -69,7 +70,7 @@ export const Header: React.FC = () => {
   const POPULAR_ZONES = [36, 37, 38, 39, 40, 35, 34, 33];
   const isAr = language === 'ar';
 
-  const handleExportWithFormat = (format: 'excel' | 'geojson' | 'backup') => {
+  const handleExportWithFormat = (format: 'excel' | 'geojson' | 'backup' | 'dxf') => {
     if (points.length === 0 && format !== 'backup') {
       showToast(isAr ? 'لا توجد نقاط للتصدير' : 'No points to export', 'warning');
       return;
@@ -182,6 +183,14 @@ export const Header: React.FC = () => {
               >
                 <FileSpreadsheet className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span>{isAr ? 'تصدير إكسل شامل (.xlsx)' : 'Export Full Excel (.xlsx)'}</span>
+              </button>
+
+              <button
+                onClick={() => handleExportWithFormat('dxf')}
+                className="w-full text-right px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors flex items-center gap-2.5"
+              >
+                <DraftingCompass className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{isAr ? 'تصدير أوتوكاد AutoCAD (.dxf)' : 'Export AutoCAD (.dxf)'}</span>
               </button>
 
               <button
@@ -328,7 +337,7 @@ export const Header: React.FC = () => {
                 <span className="text-[10px] font-bold text-slate-500 uppercase block px-1">
                   {isAr ? 'تصدير البيانات' : 'Export Data'}
                 </span>
-                <div className="grid grid-cols-3 gap-1.5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                   <button
                     onClick={() => {
                       handleExportWithFormat('excel');
@@ -338,6 +347,17 @@ export const Header: React.FC = () => {
                   >
                     <FileSpreadsheet className="w-4 h-4" />
                     <span>Excel</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      handleExportWithFormat('dxf');
+                      setShowMobileMoreMenu(false);
+                    }}
+                    className="py-2 px-1 rounded-xl bg-slate-800 text-rose-400 border border-rose-500/10 text-[10px] font-bold flex flex-col items-center gap-1 justify-center"
+                  >
+                    <DraftingCompass className="w-4 h-4" />
+                    <span>AutoCAD</span>
                   </button>
 
                   <button

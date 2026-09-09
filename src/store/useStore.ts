@@ -31,13 +31,65 @@ import { fetchElevation } from '../utils/elevation';
 
 const idbStorage: StateStorage = {
   getItem: async (name: string): Promise<string | null> => {
-    return (await get(name)) || null;
+    try {
+      const idbVal = await get(name);
+      if (idbVal) return idbVal;
+
+      // Safe legacy recovery: Check localStorage if user had an older version or migration
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const localVal = window.localStorage.getItem(name);
+        if (localVal) {
+          try {
+            // Asynchronously promote legacy data to IndexedDB
+            await set(name, localVal);
+          } catch (e) {
+            console.warn('Could not mirror localStorage to IndexedDB:', e);
+          }
+          return localVal;
+        }
+
+        // Emergency backup check
+        const emergencyVal = window.localStorage.getItem('utm-gis-emergency-backup');
+        if (emergencyVal) {
+          return emergencyVal;
+        }
+      }
+      return null;
+    } catch (err) {
+      console.warn('IndexedDB read error, falling back to localStorage:', err);
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          return window.localStorage.getItem(name) || window.localStorage.getItem('utm-gis-emergency-backup');
+        }
+      } catch {}
+      return null;
+    }
   },
   setItem: async (name: string, value: string): Promise<void> => {
-    await set(name, value);
+    try {
+      await set(name, value);
+    } catch (err) {
+      console.warn('IndexedDB write error, saving to localStorage fallback:', err);
+    }
+    // Redundant safety snapshot: save to localStorage if quota allows so browser never loses user points
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(name, value);
+        window.localStorage.setItem('utm-gis-emergency-backup', value);
+      }
+    } catch {
+      // Ignored if quota exceeded for very large survey datasets
+    }
   },
   removeItem: async (name: string): Promise<void> => {
-    await del(name);
+    try {
+      await del(name);
+    } catch {}
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem(name);
+      }
+    } catch {}
   },
 };
 
@@ -127,7 +179,7 @@ interface AppState {
   contextMenu: ContextMenuData | null;
 
   // New Export/Import States
-  exportFormat: 'excel' | 'geojson' | 'backup' | null;
+  exportFormat: 'excel' | 'geojson' | 'backup' | 'dxf' | null;
   importFile: File | null;
   importFileType: 'geojson' | 'backup' | null;
   importResult: ImportResult | null;
@@ -245,7 +297,7 @@ interface AppState {
   checkSequenceEndpoints: (pointsOrIds: (string | SurveyPoint)[]) => boolean;
   resolveDuplicateEndpoints: (action: 'keep_first' | 'keep_last' | 'keep_both') => void;
 
-  setExportFormat: (format: 'excel' | 'geojson' | 'backup' | null) => void;
+  setExportFormat: (format: 'excel' | 'geojson' | 'backup' | 'dxf' | null) => void;
   setImportFile: (file: File | null, type: 'geojson' | 'backup' | null) => void;
   setImportResult: (result: ImportResult | null) => void;
   setTempMapClickCoords: (coords: TempMapClickCoords | null) => void;
@@ -1237,32 +1289,33 @@ export const useStore = create<AppState>()(
       name: 'utm-gis-surveyor-storage',
       version: 4,
       migrate: (persistedState: any, version: number) => {
-        let state = persistedState;
+        let state = (persistedState && typeof persistedState === 'object') ? { ...persistedState } : {};
         
-        if (version < 2 || !state || state.autoFetchElevation === undefined) {
-          state = {
-            ...state,
-            autoFetchElevation: true,
-          };
-        }
-        
-        if (version < 3 && state && state.points && Array.isArray(state.points)) {
-          // Remove default sample points from previous versions
-          state = {
-            ...state,
-            points: state.points.filter((p: any) => !['sample_01', 'sample_02', 'sample_03'].includes(p.id))
-          };
+        // Critical: Ensure survey points are preserved and always a valid array
+        if (!Array.isArray(state.points)) {
+          state.points = [];
         }
 
-        if (version < 4 || !state || state.pinStyle === undefined) {
-          state = {
-            ...state,
-            pinStyle: state?.pinStyle || 'google_pin',
-            pinSize: state?.pinSize ?? 34,
-            pointLabelSize: state?.pointLabelSize ?? 11,
-            pointLabelPosition: state?.pointLabelPosition || 'bottom',
-            showPointLabels: state?.showPointLabels ?? true,
-          };
+        // Critical: Ensure annotations are preserved and always a valid array
+        if (!Array.isArray(state.annotations)) {
+          state.annotations = [];
+        }
+
+        if (version < 2 || state.autoFetchElevation === undefined) {
+          state.autoFetchElevation = true;
+        }
+        
+        if (version < 3 && Array.isArray(state.points)) {
+          // Remove default sample points from early test versions only if they match exact sample IDs
+          state.points = state.points.filter((p: any) => !['sample_01', 'sample_02', 'sample_03'].includes(p.id));
+        }
+
+        if (version < 4 || state.pinStyle === undefined) {
+          state.pinStyle = state.pinStyle || 'google_pin';
+          state.pinSize = state.pinSize ?? 34;
+          state.pointLabelSize = state.pointLabelSize ?? 11;
+          state.pointLabelPosition = state.pointLabelPosition || 'bottom';
+          state.showPointLabels = state.showPointLabels ?? true;
         }
         
         return state;
