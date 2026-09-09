@@ -104,10 +104,10 @@ export const ExportPreviewModal: React.FC = () => {
 
         if (dxfOptions.cadFormat === 'scr') {
           exportProjectToScript(points, dxfOptions);
-          showToast(isAr ? 'تم تصدير سكريبت أوتوكاد (.scr) بنجاح' : 'AutoCAD Script (.scr) exported', 'success');
+          showToast(isAr ? 'تم تصدير السكريبت بنجاح - اسحبه إلى الأوتوكاد وسيعمل التقريب تلقائياً' : 'AutoCAD Script (.scr) exported - Drag into AutoCAD', 'success');
         } else {
           exportProjectToDxf(points, annotations, dxfOptions);
-          showToast(isAr ? 'تم تصدير ملف كاد (.dxf) بنجاح' : 'AutoCAD (.dxf) exported', 'success');
+          showToast(isAr ? 'تم تصدير DXF بنجاح - بعد الفتح في أوتوكاد اضغط Z ثم E لعمل Zoom Extents' : 'DXF exported - Type Z then E to Zoom Extents', 'success');
         }
       } else if (exportFormat === 'excel') {
         exportFullProjectToExcel(points, annotations, language);
@@ -429,6 +429,26 @@ export const ExportPreviewModal: React.FC = () => {
                     </div>
                     <span className="text-[11px]">{isAr ? 'الخطوط والمسارات' : 'Annotation Lines'}</span>
                   </button>
+                </div>
+
+                {/* Quick CAD Hint */}
+                <div className="p-2.5 rounded-lg bg-cyan-950/30 border border-cyan-800/40 text-[11px] text-cyan-200/90 flex items-start gap-2">
+                  <span className="text-sm">💡</span>
+                  <div className="leading-relaxed">
+                    {dxfOptions.cadFormat === 'scr' ? (
+                      <span>
+                        {isAr
+                          ? 'بمجرد سحب ملف السكريبت (.scr) وإفلاته داخل نافذة الأوتوكاد، سيتم رسم كافة النقاط والمناسيب والأسماء وعمل تقريب تلقائي (Zoom Extents) فوراً.'
+                          : 'Drag & drop the .scr file into AutoCAD; it will draw points, names, elevations, and auto-zoom to extents.'}
+                      </span>
+                    ) : (
+                      <span>
+                        {isAr
+                          ? 'نظراً لأن الإحداثيات هي UTM حقيقية بالملايين، بعد فتح ملف الـ DXF في الأوتوكاد اضغط مرتين على عجلة الماوس أو اكتب في سطر الأوامر Z ثم Enter ثم E ثم Enter (Zoom Extents) لتوسيط النقاط فوراً.'
+                          : 'Since coordinates are real UTM meters, after opening the DXF in AutoCAD, double-click the mouse wheel or type Z then E (Zoom Extents) to center the points.'}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
