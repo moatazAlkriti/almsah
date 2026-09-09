@@ -195,6 +195,30 @@ export const ExportPreviewModal: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
+                  {/* DXF - Official Standard */}
+                  <button
+                    type="button"
+                    onClick={() => setDxfOptions({ ...dxfOptions, cadFormat: 'dxf' })}
+                    className={`p-3 rounded-xl border text-right transition-all flex flex-col justify-between ${
+                      dxfOptions.cadFormat === 'dxf'
+                        ? 'bg-rose-500/15 border-rose-500/80 text-rose-200 ring-1 ring-rose-500/50'
+                        : 'bg-slate-800/50 border-slate-700/80 text-slate-300 hover:bg-slate-800 hover:border-slate-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full mb-1">
+                      <div className="flex items-center gap-2">
+                        <DraftingCompass className="w-4 h-4 text-cyan-400" />
+                        <span className="font-bold text-xs text-slate-100">AutoCAD Drawing (.dxf)</span>
+                      </div>
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        {isAr ? 'الأفضل والموصى به' : 'Recommended'}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-400">
+                      {isAr ? 'رسم كاد رسمي جاهز ومباشر (بدون أخطاء أوامر)' : 'Official CAD Drawing file (No syntax errors)'}
+                    </span>
+                  </button>
+
                   {/* Script (.scr) */}
                   <button
                     type="button"
@@ -210,36 +234,12 @@ export const ExportPreviewModal: React.FC = () => {
                         <Terminal className="w-4 h-4 text-rose-400" />
                         <span className="font-bold text-xs text-slate-100">AutoCAD Script (.scr)</span>
                       </div>
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                        {isAr ? 'الأسرع والأسهل' : 'Recommended'}
-                      </span>
-                    </div>
-                    <span className="text-[10px] text-slate-400">
-                      {isAr ? 'سحب وإفلات مباشر داخل الأوتوكاد' : 'Drag & drop directly into AutoCAD'}
-                    </span>
-                  </button>
-
-                  {/* DXF */}
-                  <button
-                    type="button"
-                    onClick={() => setDxfOptions({ ...dxfOptions, cadFormat: 'dxf' })}
-                    className={`p-3 rounded-xl border text-right transition-all flex flex-col justify-between ${
-                      dxfOptions.cadFormat === 'dxf'
-                        ? 'bg-rose-500/15 border-rose-500/80 text-rose-200 ring-1 ring-rose-500/50'
-                        : 'bg-slate-800/50 border-slate-700/80 text-slate-300 hover:bg-slate-800 hover:border-slate-600'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between w-full mb-1">
-                      <div className="flex items-center gap-2">
-                        <DraftingCompass className="w-4 h-4 text-cyan-400" />
-                        <span className="font-bold text-xs text-slate-100">AutoCAD Drawing (.dxf)</span>
-                      </div>
                       <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                        R12-2026
+                        {isAr ? 'أمر SCRIPT' : 'Script'}
                       </span>
                     </div>
                     <span className="text-[10px] text-slate-400">
-                      {isAr ? 'ملف رسم كاد قياسي (File > Open)' : 'Standard CAD Drawing file'}
+                      {isAr ? 'ينفذ أوامر الرسم آلياً في سطر أوامر أوتوكاد' : 'Automates drawing commands in AutoCAD'}
                     </span>
                   </button>
                 </div>
@@ -432,21 +432,31 @@ export const ExportPreviewModal: React.FC = () => {
                 </div>
 
                 {/* Quick CAD Hint */}
-                <div className="p-2.5 rounded-lg bg-cyan-950/30 border border-cyan-800/40 text-[11px] text-cyan-200/90 flex items-start gap-2">
-                  <span className="text-sm">💡</span>
+                <div className="p-3 rounded-lg bg-cyan-950/30 border border-cyan-800/40 text-[11px] text-cyan-200/90 flex items-start gap-2.5">
+                  <span className="text-base">💡</span>
                   <div className="leading-relaxed">
                     {dxfOptions.cadFormat === 'scr' ? (
-                      <span>
-                        {isAr
-                          ? 'بمجرد سحب ملف السكريبت (.scr) وإفلاته داخل نافذة الأوتوكاد، سيتم رسم كافة النقاط والمناسيب والأسماء وعمل تقريب تلقائي (Zoom Extents) فوراً.'
-                          : 'Drag & drop the .scr file into AutoCAD; it will draw points, names, elevations, and auto-zoom to extents.'}
-                      </span>
+                      <div>
+                        <strong className="text-cyan-100 block mb-0.5">
+                          {isAr ? 'طريقة تشغيل السكريبت في أوتوكاد:' : 'How to run Script in AutoCAD:'}
+                        </strong>
+                        <span>
+                          {isAr
+                            ? 'لتجنب رسالة "أوامر خاطئة" الناتجة عن حماية ويندوز أو السحب المباشر: افتح الأوتوكاد واكتب في سطر الأوامر SCRIPT ثم اضغط Enter واختر الملف. (ولكن نوصيك دائماً باستخدام صيغة DXF فهي رسم رسمي ومباشر بنسبة 100%).'
+                            : 'To avoid "Invalid command" errors caused by Windows drag-and-drop: type SCRIPT in AutoCAD command bar and select the file. (We strongly recommend using DXF instead for 100% native stability).'}
+                        </span>
+                      </div>
                     ) : (
-                      <span>
-                        {isAr
-                          ? 'نظراً لأن الإحداثيات هي UTM حقيقية بالملايين، بعد فتح ملف الـ DXF في الأوتوكاد اضغط مرتين على عجلة الماوس أو اكتب في سطر الأوامر Z ثم Enter ثم E ثم Enter (Zoom Extents) لتوسيط النقاط فوراً.'
-                          : 'Since coordinates are real UTM meters, after opening the DXF in AutoCAD, double-click the mouse wheel or type Z then E (Zoom Extents) to center the points.'}
-                      </span>
+                      <div>
+                        <strong className="text-cyan-100 block mb-0.5">
+                          {isAr ? 'طريقة فتح ملف الرسم (.dxf):' : 'How to open DXF in AutoCAD:'}
+                        </strong>
+                        <span>
+                          {isAr
+                            ? 'افتح الملف مباشرة من داخل أوتوكاد (File > Open)، أو اسحبه إلى شريط البرنامج. ونظراً لأن الإحداثيات حقيقية بالملايين، اضغط مرتين على عجلة الماوس أو اكتب في سطر الأوامر Z ثم Enter ثم E ثم Enter (Zoom Extents) لتوسيط كافة النقاط فوراً.'
+                            : 'Open directly via File > Open in AutoCAD. Double-click your mouse scroll wheel or type Z then E (Zoom Extents) to immediately center and view all survey points.'}
+                        </span>
+                      </div>
                     )}
                   </div>
                 </div>

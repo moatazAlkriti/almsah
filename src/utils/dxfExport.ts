@@ -17,7 +17,7 @@ export interface DxfExportOptions {
 }
 
 export const defaultDxfOptions: DxfExportOptions = {
-  cadFormat: 'scr',
+  cadFormat: 'dxf',
   selectedCategory: 'all',
   separateLayersByFolder: true,
   textHeight: 1.0,
@@ -101,14 +101,13 @@ export function generateAutoCadScript(
   lines.push(`_PDMODE ${opts.pointMarkerType || 35}`);
   lines.push(`_PDSIZE ${opts.pointMarkerSize || 1.0}`);
 
-  // Setup text style ALM_TXT with height 0 so _TEXT command prompts are completely predictable
-  // In AutoCAD: -STYLE <Name> <Font> <Height> <Width> <Angle> <Backwards> <UpsideDown>
-  lines.push('-STYLE ALM_TXT Arial 0.0 1.0 0 N N');
-  lines.push(''); // Blank line to finish -STYLE
+  // Create standard text style with txt font and height 0.0 so _TEXT prompts are uniform
+  lines.push('-STYLE ALM_TXT txt.shx 0.0 1.0 0 N N N');
+  lines.push('');
 
-  // Create layers in one go, followed by blank line to cleanly exit -LAYER command
+  // Create layers cleanly
   lines.push('-LAYER M PT_POINTS C 2 PT_POINTS M PT_NAMES C 4 PT_NAMES M PT_ELEVATIONS C 3 PT_ELEVATIONS M PT_DESCRIPTIONS C 6 PT_DESCRIPTIONS ');
-  lines.push(''); // Crucial blank line to exit -LAYER
+  lines.push(''); // Exit -LAYER
 
   // 1. Draw Points under layer PT_POINTS
   lines.push('CLAYER PT_POINTS');
@@ -126,11 +125,11 @@ export function generateAutoCadScript(
   if (opts.includePointNames) {
     lines.push('CLAYER PT_NAMES');
     filteredPoints.forEach((p, idx) => {
-      const ptName = sanitizeDxfText(p.name || `P${idx + 1}`);
+      const ptName = sanitizeDxfText(p.name || `P${idx + 1}`).replace(/"/g, '');
       const nameX = (p.utm.easting + textOffsetX).toFixed(4);
       const nameY = (p.utm.northing + 0.35 * th).toFixed(4);
       const z = (opts.includeElevation && p.elevation !== undefined ? p.elevation : 0).toFixed(4);
-      lines.push(`_TEXT ${nameX},${nameY},${z} ${th.toFixed(3)} 0 ${ptName}`);
+      lines.push(`_TEXT ${nameX},${nameY},${z} ${th.toFixed(3)} 0 "${ptName}"`);
       lines.push(''); // Crucial blank line to finish TEXT prompt
     });
   }
@@ -144,7 +143,7 @@ export function generateAutoCadScript(
         const elevX = (p.utm.easting + textOffsetX).toFixed(4);
         const elevY = (p.utm.northing - 0.9 * th).toFixed(4);
         const z = p.elevation.toFixed(4);
-        lines.push(`_TEXT ${elevX},${elevY},${z} ${(th * 0.85).toFixed(3)} 0 ${elevText}`);
+        lines.push(`_TEXT ${elevX},${elevY},${z} ${(th * 0.85).toFixed(3)} 0 "${elevText}"`);
         lines.push(''); // Crucial blank line to finish TEXT prompt
       }
     });
@@ -154,12 +153,12 @@ export function generateAutoCadScript(
   if (opts.includeDescriptions) {
     lines.push('CLAYER PT_DESCRIPTIONS');
     filteredPoints.forEach((p) => {
-      const desc = sanitizeDxfText(p.description || p.category || '');
+      const desc = sanitizeDxfText(p.description || p.category || '').replace(/"/g, '');
       if (desc) {
         const descX = (p.utm.easting + textOffsetX).toFixed(4);
         const descY = (p.utm.northing - (p.elevation !== undefined ? 1.95 : 0.9) * th).toFixed(4);
         const z = (opts.includeElevation && p.elevation !== undefined ? p.elevation : 0).toFixed(4);
-        lines.push(`_TEXT ${descX},${descY},${z} ${(th * 0.8).toFixed(3)} 0 ${desc}`);
+        lines.push(`_TEXT ${descX},${descY},${z} ${(th * 0.8).toFixed(3)} 0 "${desc}"`);
         lines.push(''); // Crucial blank line to finish TEXT prompt
       }
     });
