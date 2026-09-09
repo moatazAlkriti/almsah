@@ -178,19 +178,21 @@ export const Header: React.FC = () => {
               } bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-2 w-56 z-[2000] backdrop-blur-xl space-y-1`}
             >
               <button
+                onClick={() => handleExportWithFormat('dxf')}
+                className="w-full text-right px-3 py-2.5 rounded-xl text-xs font-semibold text-rose-200 bg-rose-950/20 hover:bg-rose-900/40 border border-rose-500/30 transition-colors flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-2.5">
+                  <DraftingCompass className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{isAr ? 'تصدير أوتوكاد AutoCAD (.scr / .dxf)' : 'Export AutoCAD (.scr / .dxf)'}</span>
+                </div>
+              </button>
+
+              <button
                 onClick={() => handleExportWithFormat('excel')}
                 className="w-full text-right px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors flex items-center gap-2.5"
               >
                 <FileSpreadsheet className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span>{isAr ? 'تصدير إكسل شامل (.xlsx)' : 'Export Full Excel (.xlsx)'}</span>
-              </button>
-
-              <button
-                onClick={() => handleExportWithFormat('dxf')}
-                className="w-full text-right px-3 py-2.5 rounded-xl text-xs font-medium text-slate-200 hover:bg-slate-800 transition-colors flex items-center gap-2.5"
-              >
-                <DraftingCompass className="w-4 h-4 text-rose-400 shrink-0" />
-                <span>{isAr ? 'تصدير أوتوكاد AutoCAD (.dxf)' : 'Export AutoCAD (.dxf)'}</span>
               </button>
 
               <button
@@ -340,17 +342,6 @@ export const Header: React.FC = () => {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                   <button
                     onClick={() => {
-                      handleExportWithFormat('excel');
-                      setShowMobileMoreMenu(false);
-                    }}
-                    className="py-2 px-1 rounded-xl bg-slate-800 text-emerald-400 border border-emerald-500/10 text-[10px] font-bold flex flex-col items-center gap-1 justify-center"
-                  >
-                    <FileSpreadsheet className="w-4 h-4" />
-                    <span>Excel</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
                       handleExportWithFormat('dxf');
                       setShowMobileMoreMenu(false);
                     }}
@@ -358,6 +349,17 @@ export const Header: React.FC = () => {
                   >
                     <DraftingCompass className="w-4 h-4" />
                     <span>AutoCAD</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      handleExportWithFormat('excel');
+                      setShowMobileMoreMenu(false);
+                    }}
+                    className="py-2 px-1 rounded-xl bg-slate-800 text-emerald-400 border border-emerald-500/10 text-[10px] font-bold flex flex-col items-center gap-1 justify-center"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    <span>Excel</span>
                   </button>
 
                   <button

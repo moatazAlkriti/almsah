@@ -1,40 +1,183 @@
 import { SurveyPoint, Annotation } from '../types';
 import { triggerFileDownload } from './exportImport';
 
+export type CadFormat = 'scr' | 'dxf';
+
 export interface DxfExportOptions {
-  textHeight: number;            // Text height in meters (e.g., 0.5, 1.0, 2.0)
+  cadFormat: CadFormat;          // 'scr' (Script), 'dxf' (CAD drawing)
+  selectedCategory: string;      // 'all' | '__uncategorized__' | specific folder name
+  separateLayersByFolder: boolean; // Create distinct layers for each folder/category
+  textHeight: number;            // Text height in meters (e.g., 0.5, 1.0, 2.0, 5.0)
   includeElevation: boolean;     // Include Z-coordinates and elevation text
   includePointNames: boolean;    // Include point labels/numbers
   includeDescriptions: boolean;  // Include category and description labels
-  includeLines: boolean;         // Include annotation lines and polylines
+  includeLines: boolean;         // Include annotation lines (false by default for points-only)
   pointMarkerSize: number;       // Point display symbol size (PDSIZE)
   pointMarkerType: 35 | 3 | 2 | 34; // 35: Circle with X, 3: X, 2: Cross, 34: Circle with cross
 }
 
 export const defaultDxfOptions: DxfExportOptions = {
+  cadFormat: 'scr',
+  selectedCategory: 'all',
+  separateLayersByFolder: true,
   textHeight: 1.0,
   includeElevation: true,
   includePointNames: true,
   includeDescriptions: true,
-  includeLines: true,
+  includeLines: false, // Default to false: user wants points only
   pointMarkerSize: 1.0,
   pointMarkerType: 35,
 };
 
 /**
- * Sanitizes text to be safe for ASCII/UTF-8 DXF format
+ * Filter points based on category / folder scope
+ */
+export function filterPointsByScope(
+  points: SurveyPoint[],
+  scope: string
+): SurveyPoint[] {
+  if (!scope || scope === 'all') {
+    return points;
+  }
+  if (scope === '__uncategorized__') {
+    return points.filter((p) => !p.category || p.category.trim() === '');
+  }
+  return points.filter((p) => p.category === scope);
+}
+
+/**
+ * Sanitizes layer names for AutoCAD (alphanumeric, underscores, hyphens)
+ */
+export function sanitizeLayerName(name: string, prefix = 'PT'): string {
+  if (!name || name.trim() === '') return `${prefix}_DEFAULT`;
+  // Clean special characters while allowing Arabic / English letters and numbers
+  const cleaned = name
+    .trim()
+    .replace(/[\s\/\\]+/g, '_')
+    .replace(/[^\w\u0600-\u06FF\-_]/g, '');
+  return `${prefix}_${cleaned || 'DEFAULT'}`;
+}
+
+/**
+ * Sanitizes text to be safe for ASCII/UTF-8 DXF and Script format
  */
 function sanitizeDxfText(text: string): string {
   if (!text) return '';
   return text
     .replace(/[\r\n\t]+/g, ' ')
-    .replace(/[\^;]/g, ' ')
+    .replace(/[\^;"]/g, ' ')
     .trim();
 }
 
 /**
- * Generates an AutoCAD-compatible DXF (Drawing Exchange Format) string
- * Compatible with AutoCAD R12 through 2026, Civil 3D, QGIS, and all CAD viewers.
+ * Generates an AutoCAD Script (.scr) file.
+ * This is universally compatible with every AutoCAD version (2000 through 2026).
+ * Users can simply drag & drop the .scr file into AutoCAD or type SCRIPT command.
+ */
+export function generateAutoCadScript(
+  points: SurveyPoint[],
+  options: Partial<DxfExportOptions> = {}
+): string {
+  const opts: DxfExportOptions = { ...defaultDxfOptions, ...options };
+  const filteredPoints = filterPointsByScope(points, opts.selectedCategory);
+  const th = Math.max(0.1, opts.textHeight);
+
+  const lines: string[] = [
+    '; ========================================================',
+    '; ALMUSSAH GIS SURVEYOR - AUTOCAD SCRIPT (.SCR)',
+    '; Point Coordinate Import Script',
+    '; How to run: Drag & Drop this file into an open AutoCAD window,',
+    '; or type SCRIPT in the AutoCAD command bar and select this file.',
+    '; ========================================================',
+    '_CMDECHO 0',
+    '_OSMODE 0',
+    `_PDMODE ${opts.pointMarkerType}`,
+    `_PDSIZE ${opts.pointMarkerSize}`,
+    // Set standard text style height to 0.0 to ensure predictable text command parameters
+    '-STYLE STANDARD Arial 0.0 1.0 0 N N N',
+    '',
+    '; --- LAYER DEFINITIONS ---',
+  ];
+
+  // Colors cycle for folder layers (AutoCAD Color Index: 1=Red, 2=Yellow, 3=Green, 4=Cyan, 5=Blue, 6=Magenta)
+  const aciColors = [2, 4, 3, 6, 1, 5, 30, 40, 50, 140, 200];
+  const uniqueFolders = Array.from(
+    new Set(filteredPoints.map((p) => p.category?.trim() || 'UNCATEGORIZED'))
+  );
+
+  // Map folders to layers
+  const folderLayers = new Map<string, { layer: string; color: number }>();
+  uniqueFolders.forEach((folder, idx) => {
+    const layerName = sanitizeLayerName(folder, 'PT');
+    const color = aciColors[idx % aciColors.length];
+    folderLayers.set(folder, { layer: layerName, color });
+    lines.push(`-LAYER _M "${layerName}" _C ${color} "${layerName}" `);
+  });
+
+  // Base layers for labels and elevations
+  lines.push(`-LAYER _M "PT_NAMES" _C 4 "PT_NAMES" `);
+  lines.push(`-LAYER _M "PT_ELEVATIONS" _C 3 "PT_ELEVATIONS" `);
+  lines.push(`-LAYER _M "PT_DESCRIPTIONS" _C 6 "PT_DESCRIPTIONS" `);
+  lines.push('');
+  lines.push('; --- INSERT POINTS AND LABELS ---');
+
+  const textOffsetX = 0.7 * th;
+
+  filteredPoints.forEach((p, idx) => {
+    const x = p.utm.easting.toFixed(4);
+    const y = p.utm.northing.toFixed(4);
+    const z = (opts.includeElevation && p.elevation !== undefined ? p.elevation : 0).toFixed(4);
+
+    const folderKey = p.category?.trim() || 'UNCATEGORIZED';
+    const folderInfo = folderLayers.get(folderKey) || { layer: 'PT_DEFAULT', color: 2 };
+
+    // 1. Draw Point Entity
+    lines.push(`-LAYER _S "${folderInfo.layer}" `);
+    lines.push(`_POINT ${x},${y},${z}`);
+
+    // 2. Draw Point Name (Top-Right)
+    if (opts.includePointNames) {
+      const ptName = sanitizeDxfText(p.name || `P${idx + 1}`);
+      const nameX = (p.utm.easting + textOffsetX).toFixed(4);
+      const nameY = (p.utm.northing + 0.35 * th).toFixed(4);
+      lines.push(`-LAYER _S "PT_NAMES" `);
+      lines.push(`_TEXT ${nameX},${nameY},${z} ${th.toFixed(3)} 0 "${ptName}"`);
+    }
+
+    // 3. Draw Elevation (Bottom-Right)
+    if (opts.includeElevation && p.elevation !== undefined) {
+      const elevText = `${p.elevation.toFixed(2)}m`;
+      const elevX = (p.utm.easting + textOffsetX).toFixed(4);
+      const elevY = (p.utm.northing - 0.9 * th).toFixed(4);
+      lines.push(`-LAYER _S "PT_ELEVATIONS" `);
+      lines.push(`_TEXT ${elevX},${elevY},${z} ${(th * 0.85).toFixed(3)} 0 "${elevText}"`);
+    }
+
+    // 4. Draw Description / Category (Lower-Right)
+    if (opts.includeDescriptions) {
+      const desc = sanitizeDxfText(p.description || p.category || '');
+      if (desc) {
+        const descX = (p.utm.easting + textOffsetX).toFixed(4);
+        const descY = (p.utm.northing - (p.elevation !== undefined ? 1.95 : 0.9) * th).toFixed(4);
+        lines.push(`-LAYER _S "PT_DESCRIPTIONS" `);
+        lines.push(`_TEXT ${descX},${descY},${z} ${(th * 0.8).toFixed(3)} 0 "${desc}"`);
+      }
+    }
+  });
+
+  lines.push('');
+  lines.push('; --- FINALIZE VIEW ---');
+  lines.push('_ZOOM _E');
+  lines.push('_REGEN');
+  lines.push('_CMDECHO 1');
+  lines.push('');
+
+  return lines.join('\r\n');
+}
+
+/**
+ * Generates an AutoCAD-compatible DXF (Drawing Exchange Format) string.
+ * Compatible with AutoCAD R12 through 2026, Civil 3D, QGIS, and CAD viewers.
  */
 export function generateDxfContent(
   points: SurveyPoint[],
@@ -42,6 +185,7 @@ export function generateDxfContent(
   options: Partial<DxfExportOptions> = {}
 ): string {
   const opts: DxfExportOptions = { ...defaultDxfOptions, ...options };
+  const filteredPoints = filterPointsByScope(points, opts.selectedCategory);
   const th = Math.max(0.1, opts.textHeight);
 
   // Compute extents (Bounding Box)
@@ -52,7 +196,7 @@ export function generateDxfContent(
   let minZ = Infinity;
   let maxZ = -Infinity;
 
-  points.forEach((p) => {
+  filteredPoints.forEach((p) => {
     const x = p.utm.easting;
     const y = p.utm.northing;
     const z = opts.includeElevation && p.elevation !== undefined ? p.elevation : 0;
@@ -75,13 +219,6 @@ export function generateDxfContent(
           if (y < minY) minY = y;
           if (y > maxY) maxY = y;
         });
-      } else if (a.type === 'text') {
-        const x = a.utm.easting;
-        const y = a.utm.northing;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
       }
     });
   }
@@ -119,9 +256,12 @@ export function generateDxfContent(
   add(0, 'SECTION');
   add(2, 'HEADER');
 
-  // AutoCAD Version: AC1009 (R12 ASCII DXF - universally compatible without dependencies)
+  // AC1009 (AutoCAD R12 ASCII DXF) - standard universally supported
   add(9, '$ACADVER');
   add(1, 'AC1009');
+
+  add(9, '$DWGCODEPAGE');
+  add(3, 'ANSI_1252');
 
   // Insertion Units: 4 = Meters
   add(9, '$INSUNITS');
@@ -193,40 +333,46 @@ export function generateDxfContent(
   add(40, 0.0);
   add(0, 'ENDTAB');
 
-  // Layers Table (Professional Surveying Layers with Standard ACI Colors)
+  // Layers Table
+  const uniqueFolders = Array.from(
+    new Set(filteredPoints.map((p) => p.category?.trim() || 'UNCATEGORIZED'))
+  );
+  const totalLayers = uniqueFolders.length + 4; // Folders + Names + Elevations + Descriptions + Lines
+
   add(0, 'TABLE');
   add(2, 'LAYER');
-  add(70, 5);
+  add(70, totalLayers);
 
-  // Layer 1: SURVEY_POINTS (Yellow = Color 2)
-  add(0, 'LAYER');
-  add(2, 'SURVEY_POINTS');
-  add(70, 0);
-  add(62, 2); // Yellow
-  add(6, 'CONTINUOUS');
+  const aciColors = [2, 4, 3, 6, 1, 5, 30, 40, 50, 140, 200];
+  uniqueFolders.forEach((folder, idx) => {
+    const layerName = sanitizeLayerName(folder, 'PT');
+    const color = aciColors[idx % aciColors.length];
+    add(0, 'LAYER');
+    add(2, layerName);
+    add(70, 0);
+    add(62, color);
+    add(6, 'CONTINUOUS');
+  });
 
-  // Layer 2: POINT_NAMES (Cyan = Color 4)
+  // Common label layers
   add(0, 'LAYER');
   add(2, 'POINT_NAMES');
   add(70, 0);
   add(62, 4); // Cyan
   add(6, 'CONTINUOUS');
 
-  // Layer 3: POINT_ELEVATIONS (Green = Color 3)
   add(0, 'LAYER');
   add(2, 'POINT_ELEVATIONS');
   add(70, 0);
   add(62, 3); // Green
   add(6, 'CONTINUOUS');
 
-  // Layer 4: POINT_DESCRIPTIONS (Magenta = Color 6)
   add(0, 'LAYER');
   add(2, 'POINT_DESCRIPTIONS');
   add(70, 0);
   add(62, 6); // Magenta
   add(6, 'CONTINUOUS');
 
-  // Layer 5: SURVEY_LINES (Red = Color 1)
   add(0, 'LAYER');
   add(2, 'SURVEY_LINES');
   add(70, 0);
@@ -266,24 +412,26 @@ export function generateDxfContent(
   add(0, 'SECTION');
   add(2, 'ENTITIES');
 
-  // Export Points
-  points.forEach((point) => {
+  const textOffsetX = 0.7 * th;
+
+  filteredPoints.forEach((point, idx) => {
     const x = point.utm.easting;
     const y = point.utm.northing;
     const z = opts.includeElevation && point.elevation !== undefined ? point.elevation : 0;
 
+    const folderKey = point.category?.trim() || 'UNCATEGORIZED';
+    const folderLayer = sanitizeLayerName(folderKey, 'PT');
+
     // 1. POINT entity
     add(0, 'POINT');
-    add(8, 'SURVEY_POINTS');
+    add(8, folderLayer);
     add(10, x.toFixed(4));
     add(20, y.toFixed(4));
     add(30, z.toFixed(4));
 
-    // Spacing offsets for clean, non-overlapping surveyor text
-    const textOffsetX = 0.7 * th;
-
     // 2. Point Name / ID Text (Top-Right)
-    if (opts.includePointNames && point.name) {
+    if (opts.includePointNames) {
+      const ptName = sanitizeDxfText(point.name || `P${idx + 1}`);
       const nameY = y + 0.35 * th;
       add(0, 'TEXT');
       add(8, 'POINT_NAMES');
@@ -291,7 +439,7 @@ export function generateDxfContent(
       add(20, nameY.toFixed(4));
       add(30, z.toFixed(4));
       add(40, th.toFixed(3));
-      add(1, sanitizeDxfText(point.name));
+      add(1, ptName);
       add(50, 0.0);
     }
 
@@ -311,7 +459,7 @@ export function generateDxfContent(
 
     // 4. Description / Category Text (Lower-Right)
     if (opts.includeDescriptions) {
-      const desc = point.description || point.category;
+      const desc = sanitizeDxfText(point.description || point.category || '');
       if (desc) {
         const descY = y - (point.elevation !== undefined ? 1.95 : 0.9) * th;
         add(0, 'TEXT');
@@ -320,13 +468,13 @@ export function generateDxfContent(
         add(20, descY.toFixed(4));
         add(30, z.toFixed(4));
         add(40, (th * 0.8).toFixed(3));
-        add(1, sanitizeDxfText(desc));
+        add(1, desc);
         add(50, 0.0);
       }
     }
   });
 
-  // Export Annotation Lines & Polylines
+  // Export Annotation Lines & Polylines only if explicitly requested
   if (opts.includeLines && annotations.length > 0) {
     annotations.forEach((annot) => {
       if (annot.type === 'line' && annot.points && annot.points.length > 1) {
@@ -343,15 +491,6 @@ export function generateDxfContent(
           add(21, p2.utm.northing.toFixed(4));
           add(31, 0.0);
         }
-      } else if (annot.type === 'text') {
-        add(0, 'TEXT');
-        add(8, 'POINT_DESCRIPTIONS');
-        add(10, annot.utm.easting.toFixed(4));
-        add(20, annot.utm.northing.toFixed(4));
-        add(30, 0.0);
-        add(40, (th * 1.2).toFixed(3));
-        add(1, sanitizeDxfText(annot.content));
-        add(50, (annot.rotation || 0.0).toFixed(1));
       }
     });
   }
@@ -367,23 +506,24 @@ export function generateDxfContent(
 }
 
 /**
- * Generates Civil 3D PNEZD format (Point, Northing, Easting, Elevation, Description)
- * Comma-separated format natively imported into Civil 3D COGO Points
+ * Triggers downloading the project as an AutoCAD Script (.scr)
  */
-export function generateCivil3dPointsCSV(points: SurveyPoint[]): string {
-  const rows: string[] = ['Point,Northing,Easting,Elevation,Description'];
+export function exportProjectToScript(
+  points: SurveyPoint[],
+  options: Partial<DxfExportOptions> = {}
+): void {
+  const content = generateAutoCadScript(points, options);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
 
-  points.forEach((p, index) => {
-    const pointNum = p.name ? p.name.replace(/,/g, ' ') : `${index + 1}`;
-    const northing = p.utm.northing.toFixed(4);
-    const easting = p.utm.easting.toFixed(4);
-    const elevation = (p.elevation !== undefined ? p.elevation : 0).toFixed(3);
-    const desc = (p.description || p.category || 'SURVEY').replace(/,/g, ' ');
+  const scopeSuffix = options.selectedCategory && options.selectedCategory !== 'all'
+    ? `_${options.selectedCategory.replace(/\s+/g, '_')}`
+    : '_AllPoints';
 
-    rows.push(`${pointNum},${northing},${easting},${elevation},${desc}`);
-  });
-
-  return rows.join('\r\n');
+  const fileName = `AutoCAD_Points${scopeSuffix}_${year}${month}${day}.scr`;
+  triggerFileDownload(content, fileName, 'application/x-autocad;charset=utf-8;');
 }
 
 /**
@@ -399,25 +539,11 @@ export function exportProjectToDxf(
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
-  const hours = String(now.getHours()).padStart(2, '0');
-  const mins = String(now.getMinutes()).padStart(2, '0');
 
-  const fileName = `Almussah_CAD_${year}-${month}-${day}_${hours}-${mins}.dxf`;
+  const scopeSuffix = options.selectedCategory && options.selectedCategory !== 'all'
+    ? `_${options.selectedCategory.replace(/\s+/g, '_')}`
+    : '_AllPoints';
+
+  const fileName = `AutoCAD_Drawing${scopeSuffix}_${year}${month}${day}.dxf`;
   triggerFileDownload(content, fileName, 'application/dxf;charset=utf-8;');
-}
-
-/**
- * Triggers downloading Civil 3D PNEZD CSV
- */
-export function exportCivil3dCSV(points: SurveyPoint[]): void {
-  const content = generateCivil3dPointsCSV(points);
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const hours = String(now.getHours()).padStart(2, '0');
-  const mins = String(now.getMinutes()).padStart(2, '0');
-
-  const fileName = `Civil3D_PNEZD_${year}-${month}-${day}_${hours}-${mins}.csv`;
-  triggerFileDownload(content, fileName, 'text/csv;charset=utf-8;');
 }
